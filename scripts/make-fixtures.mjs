@@ -23,7 +23,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'fixtures')
 
 // ── 乱数（毎回同じCSVが出るように固定シード）────────────────
 function mulberry32(seed) {

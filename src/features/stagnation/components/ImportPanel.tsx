@@ -16,10 +16,64 @@ const ENCODING_LABEL: Record<RawTable['encoding'], string> = {
   shift_jis: 'Shift_JIS',
 }
 
+/**
+ * 検証用データ。public/fixtures に置いてあり、配信サイトにもそのまま含まれる。
+ * ★これがあるので、URLを開くだけで全機能を試せる（手元にCSVが無くてよい）。
+ */
+const SAMPLES = [
+  {
+    file: 'case1-machining-8processes.csv',
+    label: '機械加工 8工程',
+    size: '4.8MB',
+    hint: '2,377ロット / 19,016行。滞留率82%。まずはこれ',
+  },
+  {
+    file: 'case2-assembly-4processes.csv',
+    label: '組立 4工程（健全）',
+    size: '0.9MB',
+    hint: '900ロット。突出した工程間が無い工場。いつも問題ありと言う道具ではないことの確認用',
+  },
+  {
+    file: 'case3-complex-12processes.csv',
+    label: '複合加工 12工程',
+    size: '4.3MB',
+    hint: '1,500ロット。工程飛ばし・日付のみ・欠損が多い',
+  },
+  {
+    file: 'case1-machining-8processes-sjis.csv',
+    label: 'Shift_JIS 版',
+    size: '4.6MB',
+    hint: '機械加工8工程と同じ内容。文字化けしないかの確認用',
+  },
+  {
+    file: 'broken-no-actual-columns.csv',
+    label: '実績列が無いCSV',
+    size: '1KB',
+    hint: '「計算できません」と出るのが正しい',
+  },
+] as const
+
 export function ImportPanel({ table, onLoaded, onError }: Props) {
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const loadSample = async (sample: (typeof SAMPLES)[number]) => {
+    setBusy(true)
+    try {
+      // BASE_URL を挟む。GitHub Pages では /factory-stagnation-map/ の下に置かれる
+      const res = await fetch(`${import.meta.env.BASE_URL}fixtures/${sample.file}`)
+      if (!res.ok) throw new Error(`検証用データを取得できません（HTTP ${res.status}）`)
+      const buf = await res.arrayBuffer()
+      const t0 = performance.now()
+      const raw = buildRawTable(sample.file, buf)
+      onLoaded(raw, performance.now() - t0)
+    } catch (e) {
+      onError(`検証用データを読めませんでした：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const readFile = async (file: File) => {
     setBusy(true)
@@ -85,6 +139,35 @@ export function ImportPanel({ table, onLoaded, onError }: Props) {
             e.target.value = ''
           }}
         />
+      </div>
+
+      <div style={{ marginTop: S.md }}>
+        <div style={{ fontSize: 11.5, color: C.textSub, marginBottom: S.xs }}>
+          手元にCSVが無ければ、検証用のデータで試せます
+        </div>
+        <div style={{ display: 'flex', gap: S.sm, flexWrap: 'wrap' }}>
+          {SAMPLES.map(s => (
+            <button
+              key={`sample-${s.file}`}
+              type="button"
+              disabled={busy}
+              onClick={() => void loadSample(s)}
+              title={s.hint}
+              style={{
+                fontSize: 12,
+                padding: '6px 11px',
+                borderRadius: R.sm,
+                border: `1px solid ${C.borderStrong}`,
+                background: '#fff',
+                color: C.textSub,
+                cursor: busy ? 'wait' : 'pointer',
+              }}
+            >
+              {s.label}
+              <span style={{ color: C.textFaint }}>（{s.size}）</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {table && (

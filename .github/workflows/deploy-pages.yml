@@ -1,0 +1,48 @@
+name: Deploy to GitHub Pages
+
+# GitHub Pages は「リポジトリのファイルをそのまま配信」する設定だと、
+# index.html が /src/main.tsx（TypeScript）を読もうとして真っ白になる。
+# ブラウザは TypeScript を実行できないため、必ずビルドしたものを配信する。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # 壊れたものを公開しないため、型・テスト・静的解析を通してからビルドする
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run lint
+      - run: npx vite build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

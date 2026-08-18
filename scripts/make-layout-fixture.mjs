@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'fixtures')
 
 // 「コの字」に流れる配置。
 // 表面処理(EQ-P050) と 機械加工後半(EQ-P060) を工場の対角に置いてあるので、

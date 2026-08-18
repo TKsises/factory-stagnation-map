@@ -1,6 +1,4 @@
 node_modules
 dist
-# 検証用CSVは npm run fixtures で作り直せる。3MB あるので履歴に入れない
-fixtures
 .DS_Store
 *.local

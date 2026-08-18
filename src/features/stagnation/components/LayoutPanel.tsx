@@ -56,6 +56,17 @@ export function LayoutPanel({
     }
   }
 
+  const loadSample = async () => {
+    setError(null)
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}fixtures/layout-sample.json`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      onLayoutLoaded(normalizeLayout(await res.json()), 'layout-sample.json')
+    } catch (e) {
+      setError(`検証用レイアウトを読めませんでした：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   return (
     <section style={panelStyle}>
       <h2 style={titleStyle}>工場レイアウトに重ねる</h2>
@@ -102,6 +113,24 @@ export function LayoutPanel({
             e.target.value = ''
           }}
         />
+      </div>
+
+      <div style={{ marginTop: S.sm }}>
+        <button
+          type="button"
+          onClick={() => void loadSample()}
+          style={{
+            fontSize: 12,
+            padding: '6px 11px',
+            borderRadius: R.sm,
+            border: `1px solid ${C.borderStrong}`,
+            background: '#fff',
+            color: C.textSub,
+            cursor: 'pointer',
+          }}
+        >
+          検証用のレイアウトを読む（機械加工8工程に対応）
+        </button>
       </div>
 
       {error && (
