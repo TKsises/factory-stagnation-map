@@ -1,15 +1,17 @@
 import { useCallback, useMemo, useState } from 'react'
 import { CostPanel } from './features/stagnation/components/CostPanel'
 import { DiagnosticsPanel } from './features/stagnation/components/DiagnosticsPanel'
+import { Disclosure } from './features/stagnation/components/Disclosure'
 import { ExportPanel } from './features/stagnation/components/ExportPanel'
+import { HeaderBar } from './features/stagnation/components/HeaderBar'
 import { ImportPanel } from './features/stagnation/components/ImportPanel'
 import { LayoutPanel } from './features/stagnation/components/LayoutPanel'
 import { LotListPanel } from './features/stagnation/components/LotListPanel'
 import { MappingPanel } from './features/stagnation/components/MappingPanel'
 import { PreviewTable } from './features/stagnation/components/PreviewTable'
 import { QualityPanel } from './features/stagnation/components/QualityPanel'
+import { SelectionDetail, type Selection } from './features/stagnation/components/SelectionDetail'
 import { StagnationMap } from './features/stagnation/components/StagnationMap'
-import { SummaryPanel } from './features/stagnation/components/SummaryPanel'
 import { computeGaps } from './features/stagnation/domain/gaps'
 import type { LayoutView } from './features/stagnation/domain/layout'
 import { buildBands } from './features/stagnation/domain/layoutLink'
@@ -28,25 +30,27 @@ import type {
 } from './features/stagnation/domain/types'
 import { EMPTY_MAPPING } from './features/stagnation/domain/types'
 
+/**
+ * 画面の骨格
+ *
+ * ★滞留マップが主役。それ以外は既定で閉じておく。
+ *   最初から11枚のパネルを縦に並べると、どこを見ればいいのか分からなくなる。
+ *   「地図を見る → 気になったところを押す → そこだけ詳しく出る」の順にする。
+ */
 export default function App() {
-  // 設定（保存される）。CSVの中身は別に持ち、保存しない。
   const [config, setConfig] = useState<Config>(() => loadConfig())
 
-  // ★いま使っている対応づけ。config.mapping とは別に持つ。
-  //   推測しただけのものを保存すると、次回「前回の対応づけをそのまま使いました」と表示され、
-  //   ユーザーが一度も確認していない推測が「前回の設定」に化ける。
-  //   保存するのは、ユーザーが画面で列を選んだときだけ。
+  // 推測しただけの対応づけは保存しない（ユーザーが確定したものだけ保存する）
   const [mapping, setMapping] = useState<ColumnMapping>(EMPTY_MAPPING)
 
   const [table, setTable] = useState<RawTable | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadMs, setLoadMs] = useState<number | null>(null)
   const [mappingSource, setMappingSource] = useState<'saved' | 'guessed' | null>(null)
-  const [selectedPair, setSelectedPair] = useState<string | null>(null)
-  // 短縮日数は「その場の検討値」なので保存しない（設定と観測を混ぜない）
+  const [selection, setSelection] = useState<Selection>(null)
   const [shortenDays, setShortenDays] = useState(1)
-  // レイアウトは「取り込んだ実データ」。保存せず毎回読み直す。
-  // 保存するのは対応表（config.processLayout）だけ。
+
+  // レイアウトは「取り込んだ実データ」。保存せず毎回読み直す
   const [layout, setLayout] = useState<LayoutView | null>(null)
   const [layoutFileName, setLayoutFileName] = useState<string | null>(null)
 
@@ -55,10 +59,10 @@ export default function App() {
       setError(null)
       setTable(raw)
       setLoadMs(elapsedMs)
-      setSelectedPair(null)
+      setSelection(null)
       const chosen = chooseMapping(config.mapping, raw.headers)
       setMapping(chosen.mapping)
-      setMappingSource(chosen.source) // 推測の場合はここで保存しない
+      setMappingSource(chosen.source)
     },
     [config.mapping]
   )
@@ -68,8 +72,7 @@ export default function App() {
       const next = { ...mapping, [role]: column }
       setMapping(next)
       setMappingSource(null)
-      setSelectedPair(null)
-      // ユーザーが確定した対応づけだけを保存する
+      setSelection(null)
       const nextConfig = { ...config, mapping: next }
       setConfig(nextConfig)
       saveConfig(nextConfig)
@@ -77,7 +80,6 @@ export default function App() {
     [config, mapping]
   )
 
-  // 原価は「設定」なので保存する（CSVの中身は保存しない、との区別）
   const handleCostChange = useCallback(
     (itemCode: string, entry: CostEntry | null) => {
       const nextCosts = { ...config.costs }
@@ -90,7 +92,6 @@ export default function App() {
     [config]
   )
 
-  // 工程 ↔ レイアウトの対応づけは「設定」なので保存する
   const handleLinkChange = useCallback(
     (processCode: string, itemCode: string) => {
       const next = { ...config.processLayout }
@@ -111,7 +112,6 @@ export default function App() {
 
   const diag = useMemo(() => (table ? diagnoseMapping(table, mapping) : null), [table, mapping])
 
-  // 滞留の計算。実績列がそろっていないときは計算しない（それらしい数字を出さないため）
   const analysis = useMemo(() => {
     if (!table || !diag?.canCompute) return null
     const t0 = performance.now()
@@ -123,125 +123,208 @@ export default function App() {
     })
     const lotRows = buildLotRows(lots, gapResult.gaps, gapResult.completeLotIds, metrics.amountByLot)
     return { metrics, lotRows, buildStats, computeMs: performance.now() - t0 }
-  }, [
-    table,
-    mapping,
-    diag?.canCompute,
-    diag?.plannedUsedAsActual,
-    config.calendar,
-    config.costs,
-  ])
+  }, [table, mapping, diag?.canCompute, diag?.plannedUsedAsActual, config.calendar, config.costs])
 
-  // 対応表の計算は1箇所だけ。レイアウト画面と書き出し画像が同じ結果を読む
   const link = useMemo(
-    () =>
-      layout && analysis ? buildBands(analysis.metrics, layout, config.processLayout) : null,
+    () => (layout && analysis ? buildBands(analysis.metrics, layout, config.processLayout) : null),
     [layout, analysis, config.processLayout]
   )
 
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: C.bg,
-        fontFamily: FONT,
-        color: C.text,
-        padding: S.xl,
-        boxSizing: 'border-box',
-      }}
-    >
-      <div style={{ maxWidth: 1180, margin: '0 auto', display: 'grid', gap: S.lg }}>
-        <header>
-          <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: 0.3 }}>
-            工程滞留マップ
-          </h1>
-          <p style={{ margin: `${S.xs}px 0 0`, fontSize: 12.5, color: C.textSub, lineHeight: 1.7 }}>
-            工程と工程の間で、仕掛品が何日止まっているか ―― それがいくらの運転資金として
-            凍っているかを、御社の記録から算出します。
-          </p>
-        </header>
+  const page = {
+    minHeight: '100vh',
+    background: C.bg,
+    fontFamily: FONT,
+    color: C.text,
+    padding: S.xl,
+    boxSizing: 'border-box' as const,
+  }
 
-        {error && (
-          <div
-            style={{
-              padding: S.md,
-              background: C.errorSoft,
-              border: `1px solid ${C.error}`,
-              borderRadius: R.md,
-              color: C.error,
-              fontSize: 13,
-            }}
-          >
-            {error}
+  // ── 読み込み前：取り込みだけを大きく出す ──
+  if (!table) {
+    return (
+      <div style={page}>
+        <div style={{ maxWidth: 720, margin: '8vh auto 0', display: 'grid', gap: S.lg }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: 0.3 }}>
+              工程滞留マップ
+            </h1>
+            <p style={{ margin: `${S.sm}px 0 0`, fontSize: 13, color: C.textSub, lineHeight: 1.8 }}>
+              工程と工程の間で、仕掛品が何日止まっているか ―― それがいくらの運転資金として
+              凍っているかを、御社の記録から算出します。
+            </p>
           </div>
+          {error && <ErrorBox message={error} />}
+          <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
+        </div>
+      </div>
+    )
+  }
+
+  const costStatus =
+    analysis === null
+      ? ''
+      : analysis.metrics.money.frozenJPY === null
+        ? `未設定（${analysis.metrics.money.items.length} 品目）`
+        : `${analysis.metrics.money.lotsPriced.toLocaleString()} 件で算出済み`
+
+  return (
+    <div style={page}>
+      <div style={{ maxWidth: 1180, margin: '0 auto', display: 'grid', gap: S.md }}>
+        {error && <ErrorBox message={error} />}
+
+        {analysis ? (
+          <HeaderBar
+            metrics={analysis.metrics}
+            fileName={table.fileName}
+            onReset={() => {
+              setTable(null)
+              setSelection(null)
+              setLoadMs(null)
+            }}
+          />
+        ) : (
+          <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
         )}
 
-        <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
-
-        {table && (
+        {/* ── 主役：滞留マップ と、押したものの詳細 ── */}
+        {analysis && (
           <>
-            {loadMs !== null && (
-              <div style={{ fontSize: 11.5, color: C.textFaint }}>
-                解析 {loadMs.toFixed(0)} ミリ秒
-                {analysis && ` ／ 集計 ${analysis.computeMs.toFixed(0)} ミリ秒`}
-                {mappingSource === 'saved' && ' ／ 前回あなたが確定した列の対応づけを使いました'}
-                {mappingSource === 'guessed' && ' ／ 列名から対応づけを推測しました（確定はご確認を）'}
-              </div>
-            )}
+            <StagnationMap
+              metrics={analysis.metrics}
+              selection={selection}
+              onSelect={setSelection}
+            />
+            <SelectionDetail
+              metrics={analysis.metrics}
+              selection={selection}
+              onSelect={setSelection}
+            />
+          </>
+        )}
 
-            {analysis && (
-              <>
-                <SummaryPanel metrics={analysis.metrics} />
-                <StagnationMap
-                  metrics={analysis.metrics}
-                  selectedKey={selectedPair}
-                  onSelect={setSelectedPair}
-                />
-                <ExportPanel
-                  metrics={analysis.metrics}
-                  shortenDays={shortenDays}
-                  costs={config.costs}
-                  sourceFileName={table.fileName}
-                  layout={layout}
-                  link={link}
-                />
-                <CostPanel
-                  metrics={analysis.metrics}
-                  costs={config.costs}
-                  onCostChange={handleCostChange}
-                  shortenDays={shortenDays}
-                  onShortenDaysChange={setShortenDays}
-                />
-                <LayoutPanel
-                  metrics={analysis.metrics}
-                  layout={layout}
-                  layoutFileName={layoutFileName}
-                  onLayoutLoaded={(v, name) => {
-                    setLayout(v)
-                    setLayoutFileName(name)
-                  }}
-                  processLayout={config.processLayout}
-                  onLinkChange={handleLinkChange}
-                  link={link}
-                />
-                <LotListPanel rows={analysis.lotRows} metrics={analysis.metrics} />
-                <QualityPanel quality={analysis.metrics.quality} build={analysis.buildStats} />
-              </>
-            )}
+        {/* ── 実績列が無いときは、ここで止める ── */}
+        {diag && !diag.canCompute && <DiagnosticsPanel diag={diag} />}
 
+        {/* ── 以下は既定で閉じている ── */}
+        {analysis && (
+          <>
+            <Disclosure
+              title="原価を入れて金額を出す"
+              status={costStatus}
+              attention={analysis.metrics.money.frozenJPY === null}
+            >
+              <CostPanel
+                metrics={analysis.metrics}
+                costs={config.costs}
+                onCostChange={handleCostChange}
+                shortenDays={shortenDays}
+                onShortenDaysChange={setShortenDays}
+              />
+            </Disclosure>
+
+            <Disclosure
+              title="提案用の一枚を書き出す"
+              status={link && link.bands.length > 0 ? '流れ / レイアウトの2種類' : '流れの図'}
+            >
+              <ExportPanel
+                metrics={analysis.metrics}
+                shortenDays={shortenDays}
+                costs={config.costs}
+                sourceFileName={table.fileName}
+                layout={layout}
+                link={link}
+              />
+            </Disclosure>
+
+            <Disclosure
+              title="ロットを1件ずつ追う"
+              status={`${analysis.lotRows.length.toLocaleString()} 件`}
+            >
+              <LotListPanel rows={analysis.lotRows} metrics={analysis.metrics} />
+            </Disclosure>
+
+            <Disclosure
+              title="工場レイアウトに重ねる"
+              status={
+                layout === null
+                  ? '未読み込み'
+                  : link
+                    ? `${link.linkedCount} / ${analysis.metrics.flow.length} 工程が対応済み`
+                    : ''
+              }
+              attention={layout !== null && link !== null && link.unlinked.length > 0}
+            >
+              <LayoutPanel
+                metrics={analysis.metrics}
+                layout={layout}
+                layoutFileName={layoutFileName}
+                onLayoutLoaded={(v, name) => {
+                  setLayout(v)
+                  setLayoutFileName(name)
+                }}
+                processLayout={config.processLayout}
+                onLinkChange={handleLinkChange}
+                link={link}
+              />
+            </Disclosure>
+
+            <Disclosure
+              title="この数字の根拠（データ品質）"
+              status={analysis.metrics.quality.sentence.replace('この数字は ', '')}
+            >
+              <QualityPanel quality={analysis.metrics.quality} build={analysis.buildStats} />
+            </Disclosure>
+          </>
+        )}
+
+        <Disclosure
+          title="列の対応づけを直す"
+          status={
+            mappingSource === 'saved'
+              ? '前回あなたが確定した対応づけ'
+              : mappingSource === 'guessed'
+                ? '列名から推測（未確認）'
+                : '確定済み'
+          }
+          attention={diag !== null && !diag.canCompute}
+          defaultOpen={diag !== null && !diag.canCompute}
+        >
+          <div style={{ display: 'grid', gap: S.md }}>
             <MappingPanel
               table={table}
               mapping={mapping}
               onChange={handleMappingChange}
               onReguess={handleReguess}
             />
-
-            {diag && <DiagnosticsPanel diag={diag} />}
-
+            {diag && diag.canCompute && <DiagnosticsPanel diag={diag} />}
             <PreviewTable table={table} mapping={mapping} />
-          </>
+          </div>
+        </Disclosure>
+
+        {loadMs !== null && (
+          <div style={{ fontSize: 11, color: C.textFaint, textAlign: 'right' }}>
+            解析 {loadMs.toFixed(0)} ミリ秒
+            {analysis && ` ／ 集計 ${analysis.computeMs.toFixed(0)} ミリ秒`}
+          </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <div
+      style={{
+        padding: S.md,
+        background: C.errorSoft,
+        border: `1px solid ${C.error}`,
+        borderRadius: R.md,
+        color: C.error,
+        fontSize: 13,
+      }}
+    >
+      {message}
     </div>
   )
 }

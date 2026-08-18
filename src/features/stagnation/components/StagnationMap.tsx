@@ -14,12 +14,13 @@ import {
   skipArc,
   skipLabelY,
 } from '../render/mapShape'
+import type { Selection } from './SelectionDetail'
 import { panelStyle, subTextStyle, titleStyle } from './ui'
 
 type Props = {
   metrics: Metrics
-  selectedKey: string | null
-  onSelect: (key: string | null) => void
+  selection: Selection
+  onSelect: (s: Selection) => void
 }
 
 // 寸法と形は render/mapShape.ts が持つ。
@@ -33,7 +34,14 @@ const BOX_Y = MAP_BOX_Y
 export const SEV_COLOR: Record<1 | 2 | 3, string> = { 1: C.sev1, 2: C.sev2, 3: C.sev3 }
 const SEV_LABEL: Record<1 | 2 | 3, string> = { 1: '軽い', 2: '中くらい', 3: '重い' }
 
-export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
+export function StagnationMap({ metrics, selection, onSelect }: Props) {
+  const selectedKey = selection?.kind === 'gap' ? selection.key : null
+  const selectedNode = selection?.kind === 'process' ? selection.code : null
+  const toggleGap = (key: string) =>
+    onSelect(selectedKey === key ? null : { kind: 'gap', key })
+  const toggleNode = (code: string) =>
+    onSelect(selectedNode === code ? null : { kind: 'process', code })
+
   const { flow, pairs } = metrics
   const byKey = new Map(pairs.map(p => [p.key, p]))
   // 山の高さの基準は computeMetrics が出したものを使う。
@@ -64,7 +72,6 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
 
   const width = mapWidth(flow.length)
   const svgHeight = mapHeight(skipping.length > 0)
-  const selected = selectedKey === null ? null : (byKey.get(selectedKey) ?? null)
   const centerOf = (code: string) => boxCenter(rank.get(code) ?? 0)
 
   return (
@@ -94,7 +101,7 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
 
       <p style={{ ...subTextStyle, marginTop: S.xs }}>
         工程と工程の<strong>間</strong>にできた山が滞留です。高いほど長く止まっています。
-        山をクリックすると内訳が出ます。
+        <strong>山も工程の箱も押せます。</strong>押したものの数字だけが下に出ます。
       </p>
 
       <div style={{ marginTop: S.md, overflowX: 'auto' }}>
@@ -146,7 +153,7 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
             return (
               <g
                 key={`hump-${key}`}
-                onClick={() => onSelect(isSel ? null : key)}
+                onClick={() => toggleGap(key)}
                 style={{ cursor: 'pointer' }}
               >
                 {/* 当たり判定を広く取る。細い山でも掴めるように */}
@@ -191,16 +198,22 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
           {/* 工程の箱 */}
           {flow.map((node, i) => {
             const x = boxCenter(i) - BOX_W / 2
+            const isSel = selectedNode === node.code
             return (
-              <g key={`node-${node.code}`}>
+              <g
+                key={`node-${node.code}`}
+                onClick={() => toggleNode(node.code)}
+                style={{ cursor: 'pointer' }}
+              >
                 <rect
                   x={x}
                   y={BOX_Y}
                   width={BOX_W}
                   height={BOX_H}
                   rx={R.md}
-                  fill={C.panelAlt}
-                  stroke={C.borderStrong}
+                  fill={isSel ? C.accentSoft : C.panelAlt}
+                  stroke={isSel ? C.accent : C.borderStrong}
+                  strokeWidth={isSel ? 2 : 1}
                 />
                 <text
                   x={x + BOX_W / 2}
@@ -234,7 +247,7 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
             return (
               <g
                 key={`skip-${pair.key}`}
-                onClick={() => onSelect(isSel ? null : pair.key)}
+                onClick={() => toggleGap(pair.key)}
                 style={{ cursor: 'pointer' }}
               >
                 <path
@@ -267,54 +280,8 @@ export function StagnationMap({ metrics, selectedKey, onSelect }: Props) {
         </p>
       )}
 
-      {selected && <PairDetail pair={selected} />}
+
     </section>
   )
 }
 
-function PairDetail({ pair }: { pair: PairMetric }) {
-  const rows: [string, string][] = [
-    ['滞留の平均（暦）', formatDays(pair.calendarDaysMean)],
-    ['滞留の中央値（暦）', formatDays(pair.calendarDaysMedian)],
-    ['最も長かったもの（暦）', formatDays(pair.calendarDaysMax)],
-    ['滞留の平均（稼働）', formatDays(pair.workingDaysMean)],
-    ['対象ロット数', `${pair.count.toLocaleString()} 件`],
-    ['ここに凍っている金額', formatManYen(pair.amountJPY)],
-  ]
-
-  return (
-    <div
-      style={{
-        marginTop: S.md,
-        padding: S.md,
-        background: C.panelAlt,
-        border: `1px solid ${C.border}`,
-        borderRadius: R.md,
-      }}
-    >
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-        {pair.fromName} → {pair.toName}
-      </div>
-      <div
-        style={{
-          marginTop: S.sm,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-          gap: S.sm,
-        }}
-      >
-        {rows.map(([label, value]) => (
-          <div key={`d-${label}`}>
-            <div style={{ fontSize: 11, color: C.textSub }}>{label}</div>
-            <div style={{ fontSize: 15, fontWeight: 650, color: C.text }}>{value}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: S.sm, lineHeight: 1.7 }}>
-        <strong>暦</strong>は休日も含めた実際の経過時間（在庫は休日も凍っているため、金額はこちらで
-        計算します）。<strong>稼働</strong>は夜間・休日を除いた時間（休日は縮められないため、改善余地の
-        議論はこちらで行います）。
-      </div>
-    </div>
-  )
-}

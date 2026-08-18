@@ -17,6 +17,32 @@ export type ProcessNode = {
   name: string
 }
 
+/**
+ * 工程1つぶんの数字。工程の箱をクリックしたときに出す。
+ * 最初から全部並べず、触ったものだけ見せるための単位。
+ */
+export type ProcessMetric = {
+  code: string
+  name: string
+  /** この工程を通ったロット数 */
+  lots: number
+  /** 実績の加工時間（開始→終了）の平均。時間 */
+  workHoursMean: number | null
+  workHoursMedian: number | null
+  /** 標準時間（合計標準時間があればそちら）の平均。時間 */
+  standardHoursMean: number | null
+  /** 実績が片方でも欠けている工程の数 */
+  incomplete: number
+  /** 日付だけだった工程の数 */
+  dateOnly: number
+  /** この工程に入るまでの滞留 / 出てからの滞留（工程間キー） */
+  inboundKey: string | null
+  outboundKey: string | null
+  /** レイアウト対応づけに使える値（実績の作業区・設備） */
+  workCenters: string[]
+  equipments: string[]
+}
+
 /** 工程間ごとの集計（＝どこを直せば一番効くか） */
 export type PairMetric = {
   key: string
@@ -86,6 +112,8 @@ export type Summary = {
 }
 
 export type Metrics = {
+  /** 工程ごとの数字。工程を触ったときに出す */
+  processes: ProcessMetric[]
   /** 金額の内訳。原価が未設定なら金額はすべて null（0円にしない） */
   money: MoneyReport
   /** ロットID → 金額。ロット一覧はこれを読む（金額の計算元は money.ts の1箇所だけ） */
@@ -234,6 +262,72 @@ export function computeMetrics(
       ? Math.max(1, (periodTo.getTime() - periodFrom.getTime()) / 86400000)
       : null
 
+  // ── 工程ごとの数字 ──
+  // 工程を触ったときに出すためのもの。全ロットを1周して集める
+  type Acc = {
+    lots: number
+    work: number[]
+    std: number[]
+    incomplete: number
+    dateOnly: number
+    workCenters: Set<string>
+    equipments: Set<string>
+  }
+  const perProcess = new Map<string, Acc>()
+  const accOf = (code: string): Acc => {
+    let a = perProcess.get(code)
+    if (!a) {
+      a = {
+        lots: 0,
+        work: [],
+        std: [],
+        incomplete: 0,
+        dateOnly: 0,
+        workCenters: new Set(),
+        equipments: new Set(),
+      }
+      perProcess.set(code, a)
+    }
+    return a
+  }
+
+  for (const lot of lots) {
+    for (const step of lot.steps) {
+      const a = accOf(step.processCode)
+      a.lots++
+      if (step.actualStart !== null && step.actualEnd !== null) {
+        a.work.push((step.actualEnd.getTime() - step.actualStart.getTime()) / 3600000)
+      } else {
+        a.incomplete++
+      }
+      if (step.dateOnly) a.dateOnly++
+      const std = step.totalStandardMinutes ?? step.standardMinutes
+      if (std !== null) a.std.push(std / 60)
+      if (step.workCenter) a.workCenters.add(step.workCenter)
+      if (step.equipment) a.equipments.add(step.equipment)
+    }
+  }
+
+  const processes: ProcessMetric[] = flow.map((node, i) => {
+    const a = accOf(node.code)
+    const prev = flow[i - 1]
+    const next = flow[i + 1]
+    return {
+      code: node.code,
+      name: node.name,
+      lots: a.lots,
+      workHoursMean: mean(a.work),
+      workHoursMedian: median(a.work),
+      standardHoursMean: mean(a.std),
+      incomplete: a.incomplete,
+      dateOnly: a.dateOnly,
+      inboundKey: prev ? `${prev.code}→${node.code}` : null,
+      outboundKey: next ? `${node.code}→${next.code}` : null,
+      workCenters: [...a.workCenters].sort(),
+      equipments: [...a.equipments].sort(),
+    }
+  })
+
   // ── 金額 ──
   // 母数はリードタイムと同じロット集合に揃える。
   // 別々の集合で出すと「対象2,105件」と書いてある横で違う件数の金額が並ぶ。
@@ -348,6 +442,7 @@ export function computeMetrics(
   }
 
   return {
+    processes,
     money: money.report,
     amountByLot: money.amountByLot,
     completeLotIds,
