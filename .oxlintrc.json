@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "env": { "browser": true, "es2022": true },
+  "rules": {
+    "no-console": "off",
+    "no-underscore-dangle": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/prefer-add-event-listener": "off"
+  }
+}
