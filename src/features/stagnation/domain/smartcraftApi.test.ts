@@ -5,6 +5,7 @@ import {
   encodePassphrase,
   extractRecords,
   extractTotal,
+  hasSameOriginRelay,
   FACTORY_TIME_ZONE,
   fetchProcessResults,
   normalizeApiDateTime,
@@ -458,5 +459,44 @@ describe('中継サーバー経由で取る（配信サイトから使うとき�
       }
     )
     expect(calls[0].url).not.toContain('あいことば')
+  })
+})
+
+describe('同じ生成元に中継があるかを調べる', () => {
+  const reply = (status: number, body: unknown, throws = false) =>
+    (async () => ({
+      status,
+      json: async () => {
+        if (throws) throw new SyntaxError('JSONではない')
+        return body
+      },
+    })) as unknown as typeof fetch
+
+  it('403 が返れば中継がある（合言葉が要る＝中継が動いている）', async () => {
+    expect(await hasSameOriginRelay(reply(403, { error: '合言葉が違います' }))).toBe(true)
+  })
+
+  it('500 でも中継はある（設定が足りないだけ）', async () => {
+    expect(await hasSameOriginRelay(reply(500, { error: 'SMARTCRAFT_API_KEY が…' }))).toBe(true)
+  })
+
+  it('★配信サイトの404（HTML）なら中継は無い', async () => {
+    expect(await hasSameOriginRelay(reply(404, null, true))).toBe(false)
+  })
+
+  it('200 が返っても中継とはみなさない', async () => {
+    // 素通しの中継が居るように見えるのは危ないので、目印が無ければ無しとする
+    expect(await hasSameOriginRelay(reply(200, { error: 'x' }))).toBe(false)
+  })
+
+  it('403 でも error が無ければ中継とみなさない', async () => {
+    expect(await hasSameOriginRelay(reply(403, { message: '別のもの' }))).toBe(false)
+  })
+
+  it('★通信そのものが失敗したら「無し」に倒す', async () => {
+    const boom = (async () => {
+      throw new TypeError('Failed to fetch')
+    }) as unknown as typeof fetch
+    expect(await hasSameOriginRelay(boom)).toBe(false)
   })
 })

@@ -253,6 +253,26 @@ export function normalizeRelayBase(base: string): string {
 }
 
 /**
+ * 同じ生成元に中継があるかを調べる。
+ * ★合言葉なしで叩けば 403 が返るので、それを目印にする。
+ *   確認専用の入口を増やさない（入口を増やすと、守る対象が増える）。
+ * ★分からないときは必ず false。「たぶんある」で進めると、
+ *   中継が無い場所で取り込みボタンが押せてしまい、何が悪いのか分からなくなる。
+ */
+export async function hasSameOriginRelay(fetchFn: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const res = await fetchFn('/process_results')
+    // 403＝合言葉が要る／500＝中継はあるが設定が足りない。どちらも「中継はある」
+    if (res.status !== 403 && res.status !== 500) return false
+    const body: unknown = await res.json()
+    return typeof body === 'object' && body !== null && 'error' in body
+  } catch {
+    // 配信サイトでは 404 の HTML が返るので、JSON として読めずここに来る
+    return false
+  }
+}
+
+/**
  * 合言葉をヘッダーに載せられる形にする。
  * ★HTTPヘッダーは1バイト文字しか運べない。日本語の合言葉をそのまま入れると
  *   `fetch` が TypeError で落ちる（実測で確認）。日本語の合言葉を思いつくのは

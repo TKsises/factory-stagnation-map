@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { buildRawTable } from '../domain/csv'
-import { fetchProcessResults } from '../domain/smartcraftApi'
+import { fetchProcessResults, hasSameOriginRelay } from '../domain/smartcraftApi'
 import { C, FONT, R, S, WORDING } from '../domain/theme'
 import type { RawTable } from '../domain/types'
 import { panelStyle, selectStyle, subTextStyle, titleStyle } from './ui'
@@ -244,7 +244,23 @@ function ApiSource({
 
   // 手元では開発サーバーが中継するので、中継先の入力は要らない
   const needsRelay = !import.meta.env.DEV
-  const ready = !needsRelay || (relayBase !== '' && passphrase !== '')
+  // ★このページ自体が中継サーバーから配信されているか（Cloudflare Worker に置いた形）。
+  //   そのときは中継が同じ生成元にあるので、URLを入れてもらう必要が無い。
+  const [sameOrigin, setSameOrigin] = useState(false)
+
+  useEffect(() => {
+    if (!needsRelay) return
+    let cancelled = false
+    void hasSameOriginRelay().then(found => {
+      if (!cancelled) setSameOrigin(found)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [needsRelay])
+
+  const askUrl = needsRelay && !sameOrigin
+  const ready = !needsRelay || (passphrase !== '' && (sameOrigin || relayBase !== ''))
 
   const run = async () => {
     setBusy(true)
@@ -255,7 +271,8 @@ function ApiSource({
       const { table } = await fetchProcessResults(
         { resultStartedFrom: from || undefined, resultStartedTo: to || undefined },
         {
-          relayBase: needsRelay ? relayBase : undefined,
+          // 同じ生成元に中継があるなら、そこを使う（URLを入れてもらわない）
+          relayBase: needsRelay ? (sameOrigin ? window.location.origin : relayBase) : undefined,
           relayPassphrase: needsRelay ? passphrase : undefined,
           onProgress: p =>
             setProgress(
@@ -301,16 +318,23 @@ function ApiSource({
           </div>
 
           <div style={{ display: 'grid', gap: S.sm, marginTop: S.sm }}>
-            <label style={{ display: 'grid', gap: 2 }}>
-              <span style={{ fontSize: 11, color: C.textSub }}>中継サーバーのURL</span>
-              <input
-                type="url"
-                value={relayBase}
-                onChange={e => onRelayBaseChange(e.target.value)}
-                placeholder="https://xxxx.workers.dev"
-                style={{ ...selectStyle, width: '100%', maxWidth: 380 }}
-              />
-            </label>
+            {askUrl ? (
+              <label style={{ display: 'grid', gap: 2 }}>
+                <span style={{ fontSize: 11, color: C.textSub }}>中継サーバーのURL</span>
+                <input
+                  type="url"
+                  value={relayBase}
+                  onChange={e => onRelayBaseChange(e.target.value)}
+                  placeholder="https://xxxx.workers.dev"
+                  style={{ ...selectStyle, width: '100%', maxWidth: 380 }}
+                />
+              </label>
+            ) : (
+              <div style={{ fontSize: 11.5, color: C.ok }}>
+                この場所に中継サーバーがあります（{window.location.origin}）。
+                URLの入力は要りません。
+              </div>
+            )}
             <label style={{ display: 'grid', gap: 2 }}>
               <span style={{ fontSize: 11, color: C.textSub }}>
                 中継サーバーの合言葉
@@ -377,7 +401,13 @@ function ApiSource({
           type="button"
           disabled={busy || !ready}
           onClick={() => void run()}
-          title={ready ? undefined : '中継サーバーのURLと合言葉を入れてください'}
+          title={
+            ready
+              ? undefined
+              : askUrl
+                ? '中継サーバーのURLと合言葉を入れてください'
+                : '合言葉を入れてください'
+          }
           style={{
             fontSize: 12.5,
             padding: '7px 14px',
