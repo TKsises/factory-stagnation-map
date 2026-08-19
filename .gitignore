@@ -2,3 +2,7 @@ node_modules
 dist
 .DS_Store
 *.local
+
+# APIキー。絶対に Git に入れない
+.env.local
+.env

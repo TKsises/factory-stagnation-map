@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { buildRawTable } from '../domain/csv'
+import { fetchProcessResults } from '../domain/smartcraftApi'
 import { C, FONT, R, S, WORDING } from '../domain/theme'
 import type { RawTable } from '../domain/types'
-import { panelStyle, subTextStyle, titleStyle } from './ui'
+import { panelStyle, selectStyle, subTextStyle, titleStyle } from './ui'
 
 type Props = {
   table: RawTable | null
@@ -192,7 +193,117 @@ export function ImportPanel({ table, onLoaded, onError }: Props) {
         </div>
       )}
 
+      {/* ★APIは開発サーバー経由でのみ使える（キーをブラウザに置かないため）。
+          配信サイト（GitHub Pages）にはサーバーが無いので出さない。 */}
+      {import.meta.env.DEV && <ApiSource onLoaded={onLoaded} onError={onError} />}
+
       <p style={{ ...subTextStyle, marginTop: S.md, color: C.textFaint }}>{WORDING.privacy}</p>
     </section>
+  )
+}
+
+/** Smart Craft API から直接取り込む。開発サーバーが中継し、キーはブラウザに出ない */
+function ApiSource({
+  onLoaded,
+  onError,
+}: {
+  onLoaded: (t: RawTable, ms: number) => void
+  onError: (m: string) => void
+}) {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
+
+  const run = async () => {
+    setBusy(true)
+    setProgress('接続しています…')
+    onError('')
+    try {
+      const t0 = performance.now()
+      const { table } = await fetchProcessResults(
+        { resultStartedFrom: from || undefined, resultStartedTo: to || undefined },
+        {
+          onProgress: p =>
+            setProgress(
+              p.waitingMs > 0
+                ? `${p.fetched.toLocaleString()} 件 取得済み。レート制限（10件/分）のため ${Math.round(p.waitingMs / 1000)} 秒待っています…`
+                : `${p.fetched.toLocaleString()} 件 取得済み（${p.page} ページ目）`
+            ),
+        }
+      )
+      if (table.rows.length === 0) {
+        onError('該当する工程実績がありませんでした。期間を広げてみてください。')
+        return
+      }
+      onLoaded(table, performance.now() - t0)
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: S.md,
+        padding: S.md,
+        background: C.panelAlt,
+        border: `1px solid ${C.border}`,
+        borderRadius: R.md,
+      }}
+    >
+      <div style={{ fontSize: 12.5, fontWeight: 650, color: C.text }}>
+        Smart Craft API から直接取り込む
+      </div>
+      <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 2, lineHeight: 1.7 }}>
+        手元で動かしているときだけ使えます。APIキーは開発サーバーが持ち、
+        <strong>ブラウザには渡りません</strong>。使うには <code>.env.local</code> に
+        <code>SMARTCRAFT_API_KEY</code> を書いてください（<code>.env.example</code> が雛形です）。
+      </div>
+
+      <div style={{ display: 'flex', gap: S.sm, alignItems: 'end', marginTop: S.sm, flexWrap: 'wrap' }}>
+        <label style={{ display: 'grid', gap: 2 }}>
+          <span style={{ fontSize: 11, color: C.textSub }}>作業開始日（から）</span>
+          <input
+            type="date"
+            value={from}
+            onChange={e => setFrom(e.target.value)}
+            style={{ ...selectStyle, width: 150 }}
+          />
+        </label>
+        <label style={{ display: 'grid', gap: 2 }}>
+          <span style={{ fontSize: 11, color: C.textSub }}>（まで）</span>
+          <input
+            type="date"
+            value={to}
+            onChange={e => setTo(e.target.value)}
+            style={{ ...selectStyle, width: 150 }}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run()}
+          style={{
+            fontSize: 12.5,
+            padding: '7px 14px',
+            borderRadius: R.sm,
+            border: 'none',
+            background: busy ? C.border : C.accent,
+            color: busy ? C.textFaint : '#fff',
+            cursor: busy ? 'wait' : 'pointer',
+          }}
+        >
+          {busy ? '取得中…' : 'APIから取り込む'}
+        </button>
+      </div>
+
+      {progress && (
+        <div style={{ fontSize: 11.5, color: C.accent, marginTop: S.sm }}>{progress}</div>
+      )}
+    </div>
   )
 }
