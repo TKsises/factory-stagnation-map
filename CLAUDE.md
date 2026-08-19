@@ -565,3 +565,33 @@ APIキーが未設定だと、**合言葉が合っていても違っていても
 「設定されていません」だけでは、どこで何をすればいいのか分からない。
 
 `relay/worker.test.js` で順番を固定した（vitest の include に `relay/**/*.test.js` を足した）。
+
+## Cloudflare の「Variables and secrets」は2か所ある（ここで1時間溶かした）
+
+「入れてあるのに届かない」と言われ、画面を見せてもらって分かった。
+**Settings の中に同じ名前の欄が2つある。**
+
+| 場所 | 使われる場面 |
+| --- | --- |
+| Settings のいちばん上「Variables and secrets」<br>（`Configure API tokens and other runtime variables`） | **実行時。これが正解** |
+| Settings → Build の中の「Variables and secrets」<br>（`API token: ... build token` の下） | ビルド中だけ。Worker からは見えない |
+
+Build 側に3つとも正しく入っていたが、Worker からは1つも見えていなかった。
+なお **Runtime のセクションに変数の欄は無い**（Placement / Compatibility date /
+Compatibility flags / Cache だけ）。名前から探すと迷う。
+
+### 切り分けは「Worker が何を見えているか」を出させる
+
+推測を重ねずに済んだのは、設定が足りないときだけ `Object.keys(env)` を
+**名前だけ**返すようにしたから。値は絶対に出さない（`worker.test.js` で固定）。
+
+```
+いま Worker から見えている設定の名前：ASSETS
+```
+
+これで「場所が違う」と確定した。名前が違う綴りで出れば打ち間違い、
+1つも出なければ場所違い。正しく設定できればこの案内は出なくなる（500に至らないため）。
+
+**画面の文言は実物に合わせる。** 「Variables and Secrets」とだけ書いていたので、
+2つある欄のどちらか分からなかった。見分けがつく手がかり
+（`Configure API tokens and other runtime variables`）まで書く。

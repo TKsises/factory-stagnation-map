@@ -35,9 +35,14 @@
  * 「アプリ本体（dist/）＋この中継」が1つの Worker として置かれる。
  *
  *   1. https://dash.cloudflare.com → Workers & Pages → このリポジトリを import
- *   2. Settings → Variables and Secrets に2つ入れる（★Secret にすること）
+ *   2. Settings の★いちばん上の「Variables and secrets」で2つ入れる
+ *      （"Configure API tokens and other runtime variables" と書いてある方。
+ *        Add variable → Type は「Secret」）
  *        SMARTCRAFT_API_KEY … Smart Craft のAPIキー
  *        RELAY_PASSPHRASE   … 自分で決めた長い合言葉（20文字以上を推奨・日本語可）
+ *      ★Settings には同じ名前の欄が2つある。「Build」の中の
+ *        「Variables and secrets」はビルド中にしか使われず、Worker からは見えない。
+ *        実際にここで詰まり、正しい値を入れているのに何も届かなかった。
  *   3. 付いたURL（https://xxxx.workers.dev）を開けばアプリが動く。
  *      アプリと中継が同じ生成元なので、中継URLの入力も CORS の設定も要らない。
  *
@@ -78,10 +83,12 @@ const describeEnv = env => {
 const MISSING = (name, env) =>
   `${name} が Worker に届いていません。` +
   `いま Worker から見えている設定の名前：${describeEnv(env)}。` +
-  `Cloudflare → Settings → Variables and Secrets で、種類を「Secret」にして ${name} を` +
-  `追加し、保存後に Deploy してください。` +
-  `★ビルド用の欄（Build variables and secrets）ではなく、実行時の欄に入れること。` +
-  `★平文の Variable として入れると、次のデプロイで消えます。`
+  `Cloudflare → Settings のいちばん上の「Variables and secrets」` +
+  `（"Configure API tokens and other runtime variables" と書いてある方）で、` +
+  `Add variable から Type を「Secret」にして ${name} を追加してください。` +
+  `★Settings の中には同じ名前の欄が2つあります。「Build」の中の` +
+  `「Variables and secrets」はビルド中にしか使われず、Worker からは見えません。` +
+  `★Type を Text にすると、次のデプロイで消えます。`
 
 export default {
   async fetch(request, env) {

@@ -58,7 +58,7 @@ describe('確認する順番', () => {
     const res = await worker.fetch(req(null), { SMARTCRAFT_API_KEY: 'k' })
     const msg = (await body(res)).error
     expect(msg).toContain('Secret')
-    expect(msg).toContain('Variables and Secrets')
+    expect(msg).toContain('Variables and secrets')
   })
 })
 
@@ -119,9 +119,16 @@ describe('設定が届いていないときの案内', () => {
     expect((await body(res)).error).toContain('1つも見えていません')
   })
 
-  it('ビルド用の欄と実行時の欄の取り違えに触れる', async () => {
+  it('実行時の欄の見分け方と、Build の欄との違いに触れる', async () => {
     const res = await worker.fetch(req(null), {})
-    expect((await body(res)).error).toContain('Build variables and secrets')
+    const msg = (await body(res)).error
+    // ★Settings には「Variables and secrets」が2つある。
+    //   実行時用は いちばん上の（"...other runtime variables" と書いてある）方で、
+    //   「Build」の中の同名の欄はビルド中にしか使われない。
+    //   ここを取り違えて、正しい値を入れているのに何も届かない状態で詰まった。
+    //   見分けがつく手がかりを必ず文言に入れる。
+    expect(msg).toContain('runtime variables')
+    expect(msg).toContain('Build')
   })
 
   it('★設定が正しければ、この案内はもう出ない', async () => {
