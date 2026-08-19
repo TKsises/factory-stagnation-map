@@ -1,0 +1,32 @@
+{
+  // Cloudflare Workers の設定。
+  // このリポジトリを Workers に繋ぐと、ここを見て
+  // 「アプリ本体（dist/）＋ API中継（relay/worker.js）」を1つの Worker として置く。
+  //
+  // ★アプリと中継が同じ生成元になるので、CORS の設定を間違えようがない。
+  //   Smart Craft API は CORS ヘッダーを返さないため、
+  //   ブラウザから直接呼ぶことはキーの有無に関係なくできない（実測済み）。
+  //
+  // ★APIキーはここに書かない。Cloudflare の Secret に入れる。
+  //   ここに書くとリポジトリに残り、Gitの履歴から永久に消えない。
+  //     SMARTCRAFT_API_KEY … Smart Craft のAPIキー
+  //     RELAY_PASSPHRASE   … 中継サーバーの合言葉
+  //     ALLOWED_ORIGIN     … 別の場所のアプリからも使うときだけ
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "factory-stagnation-map",
+  "main": "relay/worker.js",
+  "compatibility_date": "2026-01-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // ★必ず Worker を先に通す。
+    //   assets を先にすると、single-page-application の取りこぼし処理が
+    //   /process_results まで index.html で返してしまい、中継に届かない
+    //   （実際にそうなっていた）。
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

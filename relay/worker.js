@@ -31,13 +31,21 @@
  *
  * 置き方
  * ------
- *   1. https://dash.cloudflare.com → Workers & Pages → Create → Worker
- *   2. このファイルの中身を貼って Deploy
- *   3. Settings → Variables and Secrets に3つ入れる（Secret にすること）
- *        SMARTCRAFT_API_KEY   … Smart Craft のAPIキー
- *        RELAY_PASSPHRASE     … 自分で決めた長い合言葉（20文字以上を推奨）
- *        ALLOWED_ORIGIN       … https://tksises.github.io
- *   4. 付いたURL（https://xxxx.workers.dev）をアプリの「中継サーバーのURL」に入れる
+ * このリポジトリを Cloudflare Workers に繋ぐと、`wrangler.jsonc` の設定で
+ * 「アプリ本体（dist/）＋この中継」が1つの Worker として置かれる。
+ *
+ *   1. https://dash.cloudflare.com → Workers & Pages → このリポジトリを import
+ *   2. Settings → Variables and Secrets に2つ入れる（★Secret にすること）
+ *        SMARTCRAFT_API_KEY … Smart Craft のAPIキー
+ *        RELAY_PASSPHRASE   … 自分で決めた長い合言葉（20文字以上を推奨・日本語可）
+ *   3. 付いたURL（https://xxxx.workers.dev）を開けばアプリが動く。
+ *      アプリと中継が同じ生成元なので、中継URLの入力も CORS の設定も要らない。
+ *
+ *   別の場所に置いたアプリ（GitHub Pages など）からも使いたいときだけ、
+ *   ALLOWED_ORIGIN にそのURL（例 https://tksises.github.io）を足す。
+ *
+ * ★中継だけの Worker として置くこともできる（このファイル単体を貼る）。
+ *   そのときは ASSETS が無いので、中継する経路以外は404になる。
  *
  *   検証環境を使うときは SMARTCRAFT_API_BASE も入れる
  *     本番: https://api.smartcraft.jp/api/v1 （既定）
@@ -59,6 +67,16 @@ const ALLOWED_PATHS = ['/process_results']
 export default {
   async fetch(request, env) {
     const origin = env.ALLOWED_ORIGIN ?? ''
+    const url = new URL(request.url)
+
+    // ★中継する経路以外は、アプリ本体（dist/）をそのまま返す。
+    //   こうすると「アプリの置き場所」と「中継」が同じ生成元になり、
+    //   CORS の設定を間違えようがなくなる。
+    //   ASSETS が無いとき（中継だけの Worker）は、そのまま404にする。
+    if (!ALLOWED_PATHS.includes(url.pathname)) {
+      if (env.ASSETS) return env.ASSETS.fetch(request)
+      return json({ error: `${url.pathname} は通しません` }, 404, origin)
+    }
 
     // ブラウザは本番のリクエストの前に OPTIONS を投げる（プリフライト）
     if (request.method === 'OPTIONS') {
@@ -83,11 +101,6 @@ export default {
     const sent = request.headers.get('X-Relay-Passphrase') ?? ''
     if (!timingSafeEqual(sent, encodePassphrase(env.RELAY_PASSPHRASE))) {
       return json({ error: '合言葉が違います' }, 403, origin)
-    }
-
-    const url = new URL(request.url)
-    if (!ALLOWED_PATHS.includes(url.pathname)) {
-      return json({ error: `${url.pathname} は通しません` }, 404, origin)
     }
 
     const apiBase = (env.SMARTCRAFT_API_BASE || DEFAULT_API_BASE).replace(/\/+$/, '')
