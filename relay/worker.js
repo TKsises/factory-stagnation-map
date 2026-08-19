@@ -65,16 +65,23 @@ const DEFAULT_API_BASE = 'https://api.smartcraft.jp/api/v1'
 const ALLOWED_PATHS = ['/process_results']
 
 /**
- * 設定が足りないときの文言。
- * ★「設定されていません」だけだと、どこで何をすればいいのか分からない。
- *   ★Secret ではなく平文の Variable として入れると、次の Git デプロイで
- *   消える（wrangler の設定が正となり、そこに無い平文の変数は削除される）。
- *   Secret は消えない。ここで踏んだので文言に残す。
+ * ★Worker が実際に見えている設定の「名前だけ」を返す。値は絶対に返さない。
+ *   「入れたはずなのに届かない」を切り分けるには、これが要る。
+ *   名前が1つも出なければ入れた場所が違い、違う綴りが出れば打ち間違い。
+ *   設定が足りないときにしか出ないので、正しく動き出せば表に出なくなる。
  */
-const MISSING = name =>
-  `${name} が Worker に届いていません。Cloudflare → Settings → Variables and Secrets で、` +
-  `種類を「Secret」にして ${name} を追加し、保存後に Deploy してください。` +
-  `（平文の Variable として入れると、次のデプロイで消えます）`
+const describeEnv = env => {
+  const keys = Object.keys(env).sort()
+  return keys.length === 0 ? '（1つも見えていません）' : keys.join(' / ')
+}
+
+const MISSING = (name, env) =>
+  `${name} が Worker に届いていません。` +
+  `いま Worker から見えている設定の名前：${describeEnv(env)}。` +
+  `Cloudflare → Settings → Variables and Secrets で、種類を「Secret」にして ${name} を` +
+  `追加し、保存後に Deploy してください。` +
+  `★ビルド用の欄（Build variables and secrets）ではなく、実行時の欄に入れること。` +
+  `★平文の Variable として入れると、次のデプロイで消えます。`
 
 export default {
   async fetch(request, env) {
@@ -107,7 +114,7 @@ export default {
 
     // 合言葉そのものが未設定だと誰も入れないので、これだけは言うしかない
     if (!env.RELAY_PASSPHRASE) {
-      return json({ error: MISSING('RELAY_PASSPHRASE') }, 500, origin)
+      return json({ error: MISSING('RELAY_PASSPHRASE', env) }, 500, origin)
     }
 
     // ★ブラウザ側と同じ形（UTF-8 → base64）にしてから比べる。
@@ -120,7 +127,7 @@ export default {
 
     // ここから先は合言葉が合った人だけ。設定漏れを黙って通さない
     if (!env.SMARTCRAFT_API_KEY) {
-      return json({ error: MISSING('SMARTCRAFT_API_KEY') }, 500, origin)
+      return json({ error: MISSING('SMARTCRAFT_API_KEY', env) }, 500, origin)
     }
 
     const apiBase = (env.SMARTCRAFT_API_BASE || DEFAULT_API_BASE).replace(/\/+$/, '')

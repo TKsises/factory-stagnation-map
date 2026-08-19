@@ -93,3 +93,42 @@ describe('日本語の合言葉', () => {
     expect(res.status).toBe(403)
   })
 })
+
+describe('設定が届いていないときの案内', () => {
+  it('Worker から見えている設定の「名前」を出す（切り分けのため）', async () => {
+    const env = { ASSETS: {}, SMARTCRAFT_API_KEY: 'k' } // 合言葉だけ無い
+    const res = await worker.fetch(req(null), env)
+    const msg = (await body(res)).error
+    expect(msg).toContain('ASSETS')
+    expect(msg).toContain('SMARTCRAFT_API_KEY')
+  })
+
+  it('★値は絶対に出さない', async () => {
+    const env = { SMARTCRAFT_API_KEY: 'sk-ひみつの鍵-abc123', ANOTHER: 'ひみつ2' }
+    const res = await worker.fetch(req(null), env)
+    const msg = (await body(res)).error
+    expect(msg).not.toContain('sk-ひみつの鍵-abc123')
+    expect(msg).not.toContain('ひみつ2')
+    // 名前は出る
+    expect(msg).toContain('SMARTCRAFT_API_KEY')
+    expect(msg).toContain('ANOTHER')
+  })
+
+  it('1つも届いていなければ、そう言う', async () => {
+    const res = await worker.fetch(req(null), {})
+    expect((await body(res)).error).toContain('1つも見えていません')
+  })
+
+  it('ビルド用の欄と実行時の欄の取り違えに触れる', async () => {
+    const res = await worker.fetch(req(null), {})
+    expect((await body(res)).error).toContain('Build variables and secrets')
+  })
+
+  it('★設定が正しければ、この案内はもう出ない', async () => {
+    const env = { RELAY_PASSPHRASE: PASS, SMARTCRAFT_API_KEY: 'k' }
+    const res = await worker.fetch(req('ちがう'), env)
+    const msg = (await body(res)).error
+    expect(msg).toBe('合言葉が違います')
+    expect(msg).not.toContain('SMARTCRAFT_API_KEY')
+  })
+})
