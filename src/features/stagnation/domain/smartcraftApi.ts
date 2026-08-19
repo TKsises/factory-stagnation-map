@@ -55,6 +55,12 @@ export const FIELD_TO_COLUMN: Record<string, string> = {
   // ★status は process_result_ 接頭辞（process_order_ ではない）
   process_result_status: 'ステータス',
   updated_at: '最終更新日時',
+  // 実データで実際に返ってきた項目（検証環境で確認）
+  process_result_defect_quantity: '不良数',
+  defect_rate: '不良率',
+  achievement_rate: '達成率',
+  setup_duration: '段取り時間',
+  order_total_time: '合計稼働時間',
 
   // 以下は今の /process_results には出てこないが、
   // 版が変わって増えたときに拾えるよう残しておく（無くても害はない）

@@ -26,9 +26,9 @@ export function HeaderBar({ metrics, fileName, onReset }: Props) {
       sub: `中央値 ${formatDays(summary.leadTimeMedianDays)}`,
     },
     {
-      label: 'うち滞留',
+      label: 'うち滞留（待ち）',
       value: formatDays(summary.stagnationMeanDays),
-      sub: `滞留率 ${formatRate(summary.stagnationRate)}`,
+      sub: `滞留率 ${formatRate(summary.stagnationRate)}／加工など ${formatDays(summary.processingActualMeanDays)}`,
       accent: true,
     },
     {
@@ -59,12 +59,6 @@ export function HeaderBar({ metrics, fileName, onReset }: Props) {
       >
         <strong style={{ fontSize: 15, color: C.text, fontWeight: 700 }}>工程滞留マップ</strong>
         <span>{fileName}</span>
-        <span>
-          {fmtDate(summary.periodFrom)} 〜 {fmtDate(summary.periodTo)}
-        </span>
-        <span>
-          対象 {summary.rateLots.toLocaleString()} / {quality.lotsTotal.toLocaleString()} ロット
-        </span>
         <button
           type="button"
           onClick={onReset}
@@ -81,6 +75,44 @@ export function HeaderBar({ metrics, fileName, onReset }: Props) {
         >
           別のCSVを読む
         </button>
+      </div>
+
+      {/* ★いつからいつまでの話なのかを、数字より先に出す。
+          これが無いと「その4日って、いつの話？」で最初に止まる。 */}
+      <div
+        style={{
+          marginTop: S.sm,
+          padding: `${S.sm}px ${S.md}px`,
+          background: C.panelAlt,
+          border: `1px solid ${C.border}`,
+          borderRadius: R.md,
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: S.md,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: 11.5, color: C.textSub }}>対象期間</span>
+        <strong style={{ fontSize: 15, color: C.text, fontWeight: 700 }}>
+          {fmtDate(summary.periodFrom)} 〜 {fmtDate(summary.periodTo)}
+        </strong>
+        {summary.periodDays !== null && (
+          <span style={{ fontSize: 12, color: C.textSub }}>
+            （{Math.round(summary.periodDays).toLocaleString()} 日間）
+          </span>
+        )}
+        <span style={{ fontSize: 11.5, color: C.textSub, marginLeft: 'auto' }}>
+          評価ロット{' '}
+          <strong style={{ fontSize: 13, color: C.text }}>
+            {summary.rateLots.toLocaleString()}
+          </strong>{' '}
+          / {quality.lotsTotal.toLocaleString()} 件
+          {summary.rateExcludedLots > 0 && (
+            <span style={{ color: C.warn }}>
+              （{summary.rateExcludedLots.toLocaleString()} 件は欠損のため除外）
+            </span>
+          )}
+        </span>
       </div>
 
       {summary.plannedAsActual && (
@@ -122,6 +154,29 @@ export function HeaderBar({ metrics, fileName, onReset }: Props) {
               {cell.value}
             </div>
             <div style={{ fontSize: 11, color: C.textFaint }}>{cell.sub}</div>
+            {/* 滞留のところだけ、加工と滞留の比率を帯で見せる。
+                「8.5日」だけだと長いのか短いのか分からない */}
+            {cell.accent && summary.stagnationRate !== null && (
+              <div
+                style={{
+                  marginTop: 5,
+                  display: 'flex',
+                  height: 7,
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  background: C.border,
+                }}
+                title={`加工など ${formatDays(summary.processingActualMeanDays)} ／ 滞留 ${formatDays(summary.stagnationMeanDays)}`}
+              >
+                <div
+                  style={{
+                    width: `${(1 - summary.stagnationRate) * 100}%`,
+                    background: C.ok,
+                  }}
+                />
+                <div style={{ flex: 1, background: C.sev3 }} />
+              </div>
+            )}
           </div>
         ))}
       </div>

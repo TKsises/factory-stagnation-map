@@ -9,13 +9,25 @@ import { defineConfig, loadEnv } from 'vite'
 //
 //   Smart Craft API は CORS ヘッダーを返さない（実測で確認済み）ので、
 //   ブラウザから直接は呼べない。この中継が CORS も同時に解決する。
-const SMARTCRAFT_API = 'https://api.smartcraft.jp/api/v1'
+// ★本番と検証環境でホストが違う。
+//   トークンは発行した環境でしか通らない（検証環境で発行したキーを本番に投げると401）。
+//   .env.local の SMARTCRAFT_API_BASE で切り替える。
+const DEFAULT_API_BASE = 'https://api.smartcraft.jp/api/v1'
+// 検証環境: https://api.staging.smartcraft.jp/api/v1
 
 export default defineConfig(({ mode }) => {
   // 第3引数を '' にすると VITE_ 接頭辞なしの変数も読める。
   // ★ここで読んだ値は Node 側にだけ置く。client には渡さない。
-  const env = loadEnv(mode, process.cwd(), '')
+  //
+  // ★process.cwd() を使わない。
+  //   `node vite.js <プロジェクト>` のように別の場所から起動されると、
+  //   cwd が起動元（例 C:\Users\taise）になり、.env.local を見つけられない。
+  //   実際にそれで「キーを書いたのに 401」になった。
+  //   この設定ファイル自身の場所を基準にする。
+  const projectRoot = fileURLToPath(new URL('.', import.meta.url))
+  const env = loadEnv(mode, projectRoot, '')
   const apiKey = env.SMARTCRAFT_API_KEY ?? ''
+  const apiBase = env.SMARTCRAFT_API_BASE || DEFAULT_API_BASE
 
   return {
   // GitHub Pages は https://<user>.github.io/<リポジトリ名>/ で配信されるため、
@@ -29,13 +41,23 @@ export default defineConfig(({ mode }) => {
   server: {
     proxy: {
       '/api/smartcraft': {
-        target: SMARTCRAFT_API,
+        target: apiBase,
         changeOrigin: true,
         rewrite: path => path.replace(/^\/api\/smartcraft/, ''),
         configure: proxy => {
           proxy.on('proxyReq', proxyReq => {
             // キーは .env.local（Gitに入れない）から読む。ブラウザには出さない
             if (apiKey) proxyReq.setHeader('Authorization', `Bearer ${apiKey}`)
+            // 値は出さず、付いたかどうかだけを開発サーバーのログに出す
+            console.log(
+              `[中継] ${proxyReq.path} → Authorization ${apiKey ? `付与（キー${apiKey.length}文字）` : '未付与'}`
+            )
+          })
+          proxy.on('proxyRes', (proxyRes, req) => {
+            console.log(`[中継] ${req.url} ← HTTP ${proxyRes.statusCode}`)
+          })
+          proxy.on('error', err => {
+            console.log(`[中継] エラー: ${err.message}`)
           })
         },
       },

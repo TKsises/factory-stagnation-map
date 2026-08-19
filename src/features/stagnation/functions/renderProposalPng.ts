@@ -27,15 +27,13 @@ import {
   traceBand,
 } from '../render/layoutShape'
 import {
-  boxCenter,
-  gapCenter,
   humpShape,
   humpSize,
+  layoutMap,
   MAP,
-  MAP_BOX_Y,
-  mapWidth,
   skipArc,
   traceHump,
+  traceWrap,
 } from '../render/mapShape'
 
 const FONT_STACK = '"Yu Gothic UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif'
@@ -226,9 +224,10 @@ export function renderProposalPng(input: ProposalInput): string {
   const headerH = 108
   const bandH = 118
   const LAYOUT_AREA_H = 470
-  const mapAreaH = isLayout
-    ? LAYOUT_AREA_H + 20
-    : MAP_BOX_Y + MAP.boxH + 34 + (skipping.length > 0 ? MAP.skipLane : 0)
+  // 折り返した結果の実際の高さを使う。工程数が多いと段が増える
+  const flowLayout = layoutMap(flow, PAGE_W - PAD * 2)
+  const flowScale = Math.min(1, (PAGE_W - PAD * 2) / Math.max(1, flowLayout.width))
+  const mapAreaH = isLayout ? LAYOUT_AREA_H + 20 : flowLayout.height * flowScale + 24
   const footH = 30 + footLines * 19 + 16
   const PAGE_H = headerH + mapAreaH + bandH + footH + PAD
 
@@ -286,100 +285,131 @@ export function renderProposalPng(input: ProposalInput): string {
   if (isLayout) {
     drawLayoutBody(ctx, input.layout!, input.link!, headerH + 10, PAGE_W - PAD * 2, LAYOUT_AREA_H)
   } else {
-  const rawMapW = mapWidth(flow.length)
-  const mapScale = Math.min(1, (PAGE_W - PAD * 2) / Math.max(1, rawMapW))
+  // 画面と同じ layoutMap を使う。別々に配置を決めると図がずれる
+  const mapLayout = layoutMap(flow, PAGE_W - PAD * 2)
+  const mapScale = Math.min(1, (PAGE_W - PAD * 2) / Math.max(1, mapLayout.width))
   ctx.save()
-  ctx.translate(PAD + ((PAGE_W - PAD * 2) - rawMapW * mapScale) / 2, headerH + 10)
+  ctx.translate(PAD + ((PAGE_W - PAD * 2) - mapLayout.width * mapScale) / 2, headerH + 10)
   ctx.scale(mapScale, mapScale)
 
-  // 基準線
-  ctx.strokeStyle = C.border
-  ctx.lineWidth = 1.5
-  ctx.beginPath()
-  ctx.moveTo(0, MAP.baseY)
-  ctx.lineTo(rawMapW, MAP.baseY)
-  ctx.stroke()
-
-  const byKey = new Map(pairs.map(p => [p.key, p]))
-
-  // 山（隣り合う工程の間）
-  flow.slice(0, -1).forEach((node, i) => {
-    const next = flow[i + 1]
-    const pair = byKey.get(`${node.code}→${next.code}`)
-    const cx = gapCenter(i)
-    if (!pair || pair.count === 0) {
-      ctx.fillStyle = C.textFaint
-      ctx.font = `11px ${FONT_STACK}`
-      ctx.textAlign = 'center'
-      ctx.fillText('データなし', cx, MAP.baseY - 12)
-      ctx.textAlign = 'left'
-      return
-    }
-    const ratio = worstCalendarDaysMean === 0 ? 0 : pair.calendarDaysMean / worstCalendarDaysMean
-    const { height, width } = humpSize(ratio)
-    const color = SEV_COLOR[pair.severity]
-
-    // 画面と同じ形を同じ関数から描く
-    traceHump(ctx, humpShape(cx, width, height))
-    ctx.globalAlpha = 0.72
-    ctx.fillStyle = color
-    ctx.fill()
-    ctx.globalAlpha = 1
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1
-    ctx.stroke()
-
-    ctx.textAlign = 'center'
-    ctx.fillStyle = C.text
-    ctx.font = `bold 14px ${FONT_STACK}`
-    ctx.fillText(formatDays(pair.calendarDaysMean), cx, MAP.baseY - height - 18)
-    ctx.fillStyle = pair.amountJPY === null ? C.textFaint : C.accent
-    ctx.font = `bold 12px ${FONT_STACK}`
-    ctx.fillText(formatManYen(pair.amountJPY), cx, MAP.baseY - height - 4)
-    ctx.textAlign = 'left'
-  })
-
-  // 工程の箱
-  flow.forEach((node, i) => {
-    const x = boxCenter(i) - MAP.boxW / 2
-    ctx.fillStyle = C.panelAlt
+  // 行をまたぐ渡り
+  for (const l of mapLayout.links) {
+    if (l.kind !== 'wrap' || !l.path) continue
     ctx.strokeStyle = C.borderStrong
-    ctx.lineWidth = 1
-    roundRect(ctx, x, MAP_BOX_Y, MAP.boxW, MAP.boxH, 6)
-    ctx.fill()
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([4, 4])
+    traceWrap(ctx, l.path)
     ctx.stroke()
+    ctx.setLineDash([])
+  }
 
-    ctx.textAlign = 'center'
-    ctx.fillStyle = C.text
-    ctx.font = `bold 13px ${FONT_STACK}`
-    const name = node.name.length > 8 ? `${node.name.slice(0, 7)}…` : node.name
-    ctx.fillText(name, x + MAP.boxW / 2, MAP_BOX_Y + 22)
-    ctx.fillStyle = C.textFaint
-    ctx.font = `11px ${FONT_STACK}`
-    ctx.fillText(node.code, x + MAP.boxW / 2, MAP_BOX_Y + 39)
-    ctx.textAlign = 'left'
-  })
-
-  // 工程を飛ばした流れ（破線の弧）。画面で描いているものは書き出しでも描く
+  // 工程を飛ばした流れ
   for (const pair of skipping) {
-    const arc = skipArc(boxCenter(rank.get(pair.fromProcess)!), boxCenter(rank.get(pair.toProcess)!))
+    const a = mapLayout.byCode.get(pair.fromProcess)
+    const b = mapLayout.byCode.get(pair.toProcess)
+    if (!a || !b) continue
+    const arc = skipArc(a, b)
     ctx.strokeStyle = SEV_COLOR[pair.severity]
-    ctx.lineWidth = 2
+    ctx.globalAlpha = 0.4
+    ctx.lineWidth = 1.5
     ctx.setLineDash([5, 3])
     ctx.beginPath()
     ctx.moveTo(arc.from[0], arc.from[1])
     ctx.quadraticCurveTo(arc.ctrl[0], arc.ctrl[1], arc.to[0], arc.to[1])
     ctx.stroke()
     ctx.setLineDash([])
+    ctx.globalAlpha = 1
+  }
+
+  const byKey = new Map(pairs.map(p => [p.key, p]))
+
+  // 同じ行の隣どうし：つなぎ線と、その上に立つ山
+  for (const l of mapLayout.links) {
+    if (l.kind !== 'inline') continue
+    const pair = byKey.get(l.key)
+    const left = l.cx - MAP.gapW / 2
+    const right = l.cx + MAP.gapW / 2
+
+    if (!pair || pair.count === 0) {
+      ctx.strokeStyle = C.border
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([3, 3])
+      ctx.beginPath()
+      ctx.moveTo(left, l.cy)
+      ctx.lineTo(right, l.cy)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = C.textFaint
+      ctx.font = `10px ${FONT_STACK}`
+      ctx.textAlign = 'center'
+      ctx.fillText('データなし', l.cx, l.cy - 8)
+      ctx.textAlign = 'left'
+      continue
+    }
+
+    const ratio = worstCalendarDaysMean === 0 ? 0 : pair.calendarDaysMean / worstCalendarDaysMean
+    const { height, width } = humpSize(ratio)
+    const shape = humpShape(l.cx, l.cy, width, height)
+    const color = SEV_COLOR[pair.severity]
+
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(left, l.cy)
+    ctx.lineTo(right, l.cy)
+    ctx.stroke()
+
+    traceHump(ctx, shape)
+    ctx.globalAlpha = 0.62
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1
+    ctx.stroke()
+
+    ctx.textAlign = 'center'
+    ctx.fillStyle = C.textFaint
+    ctx.font = `9.5px ${FONT_STACK}`
+    ctx.fillText(`${pair.count.toLocaleString()} 件`, l.cx, l.cy + 13)
+
+    const boxH = pair.amountJPY === null ? 17 : 28
+    ctx.fillStyle = '#ffffff'
+    ctx.globalAlpha = 0.92
+    roundRect(ctx, l.cx - 40, shape.peakY - 30, 80, boxH, 4)
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    roundRect(ctx, l.cx - 40, shape.peakY - 30, 80, boxH, 4)
+    ctx.stroke()
+
+    ctx.fillStyle = C.text
+    ctx.font = `bold 12px ${FONT_STACK}`
+    ctx.fillText(formatDays(pair.calendarDaysMean), l.cx, shape.peakY - 18)
+    if (pair.amountJPY !== null) {
+      ctx.fillStyle = C.accent
+      ctx.font = `bold 10px ${FONT_STACK}`
+      ctx.fillText(formatManYen(pair.amountJPY), l.cx, shape.peakY - 6)
+    }
+    ctx.textAlign = 'left'
+  }
+
+  // 工程の箱
+  for (const b of mapLayout.boxes) {
+    ctx.fillStyle = C.panelAlt
+    ctx.strokeStyle = C.borderStrong
+    ctx.lineWidth = 1
+    roundRect(ctx, b.x, b.y, MAP.boxW, MAP.boxH, 6)
+    ctx.fill()
+    ctx.stroke()
 
     ctx.textAlign = 'center'
     ctx.fillStyle = C.text
-    ctx.font = `bold 12px ${FONT_STACK}`
-    ctx.fillText(
-      `${formatDays(pair.calendarDaysMean)}（工程飛ばし）`,
-      arc.ctrl[0],
-      arc.ctrl[1] - 12
-    )
+    ctx.font = `bold 12.5px ${FONT_STACK}`
+    ctx.fillText(b.name.length > 9 ? `${b.name.slice(0, 8)}…` : b.name, b.x + MAP.boxW / 2, b.y + 23)
+    ctx.fillStyle = C.textFaint
+    ctx.font = `10px ${FONT_STACK}`
+    ctx.fillText(b.code.length > 14 ? `${b.code.slice(0, 13)}…` : b.code, b.x + MAP.boxW / 2, b.y + 40)
     ctx.textAlign = 'left'
   }
   ctx.restore()
