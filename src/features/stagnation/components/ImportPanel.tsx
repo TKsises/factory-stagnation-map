@@ -9,6 +9,9 @@ type Props = {
   table: RawTable | null
   onLoaded: (table: RawTable, elapsedMs: number) => void
   onError: (message: string) => void
+  /** API中継サーバーのURL（配信サイトから使うときに要る）。空なら未設定 */
+  relayBase: string
+  onRelayBaseChange: (v: string) => void
 }
 
 const ENCODING_LABEL: Record<RawTable['encoding'], string> = {
@@ -54,7 +57,13 @@ const SAMPLES = [
   },
 ] as const
 
-export function ImportPanel({ table, onLoaded, onError }: Props) {
+export function ImportPanel({
+  table,
+  onLoaded,
+  onError,
+  relayBase,
+  onRelayBaseChange,
+}: Props) {
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -193,27 +202,49 @@ export function ImportPanel({ table, onLoaded, onError }: Props) {
         </div>
       )}
 
-      {/* ★APIは開発サーバー経由でのみ使える（キーをブラウザに置かないため）。
-          配信サイト（GitHub Pages）にはサーバーが無いので出さない。 */}
-      {import.meta.env.DEV && <ApiSource onLoaded={onLoaded} onError={onError} />}
+      {/* ★APIキーはブラウザに置かない。中継が鍵を持つ。
+          手元では開発サーバーが中継し、配信サイトでは利用者が立てた中継を使う。 */}
+      <ApiSource
+        onLoaded={onLoaded}
+        onError={onError}
+        relayBase={relayBase}
+        onRelayBaseChange={onRelayBaseChange}
+      />
 
       <p style={{ ...subTextStyle, marginTop: S.md, color: C.textFaint }}>{WORDING.privacy}</p>
     </section>
   )
 }
 
-/** Smart Craft API から直接取り込む。開発サーバーが中継し、キーはブラウザに出ない */
+/**
+ * Smart Craft API から直接取り込む。
+ * ★APIキーはブラウザに一度も渡らない。鍵を持つのは中継だけ。
+ *   手元 … vite の開発サーバーが中継する（`.env.local` の鍵を使う）
+ *   配信サイト … 利用者が立てた中継サーバーを使う（`relay/worker.js`）
+ *
+ * ★合言葉は保存しない。共用のPCに残さないため、画面を閉じたら消える。
+ *   （これは Smart Craft のAPIキーではなく、中継サーバーの錠）
+ */
 function ApiSource({
   onLoaded,
   onError,
+  relayBase,
+  onRelayBaseChange,
 }: {
   onLoaded: (t: RawTable, ms: number) => void
   onError: (m: string) => void
+  relayBase: string
+  onRelayBaseChange: (v: string) => void
 }) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
+  const [passphrase, setPassphrase] = useState('')
+
+  // 手元では開発サーバーが中継するので、中継先の入力は要らない
+  const needsRelay = !import.meta.env.DEV
+  const ready = !needsRelay || (relayBase !== '' && passphrase !== '')
 
   const run = async () => {
     setBusy(true)
@@ -224,6 +255,8 @@ function ApiSource({
       const { table } = await fetchProcessResults(
         { resultStartedFrom: from || undefined, resultStartedTo: to || undefined },
         {
+          relayBase: needsRelay ? relayBase : undefined,
+          relayPassphrase: needsRelay ? passphrase : undefined,
           onProgress: p =>
             setProgress(
               p.waitingMs > 0
@@ -258,11 +291,68 @@ function ApiSource({
       <div style={{ fontSize: 12.5, fontWeight: 650, color: C.text }}>
         Smart Craft API から直接取り込む
       </div>
-      <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 2, lineHeight: 1.7 }}>
-        手元で動かしているときだけ使えます。APIキーは開発サーバーが持ち、
-        <strong>ブラウザには渡りません</strong>。使うには <code>.env.local</code> に
-        <code>SMARTCRAFT_API_KEY</code> を書いてください（<code>.env.example</code> が雛形です）。
-      </div>
+      {needsRelay ? (
+        <>
+          <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 2, lineHeight: 1.7 }}>
+            このサイトから使うには<strong>中継サーバー</strong>が要ります。Smart Craft API は
+            CORS を返さないため、ブラウザから直接は呼べません（APIキーの有無に関係なく遮断されます）。
+            <strong>APIキーは中継サーバーの環境変数に置き、ブラウザには渡しません。</strong>
+            置き方はリポジトリの <code>relay/worker.js</code> の先頭に書いてあります。
+          </div>
+
+          <div style={{ display: 'grid', gap: S.sm, marginTop: S.sm }}>
+            <label style={{ display: 'grid', gap: 2 }}>
+              <span style={{ fontSize: 11, color: C.textSub }}>中継サーバーのURL</span>
+              <input
+                type="url"
+                value={relayBase}
+                onChange={e => onRelayBaseChange(e.target.value)}
+                placeholder="https://xxxx.workers.dev"
+                style={{ ...selectStyle, width: '100%', maxWidth: 380 }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 2 }}>
+              <span style={{ fontSize: 11, color: C.textSub }}>
+                中継サーバーの合言葉
+                <span style={{ color: C.textFaint }}>
+                  （保存しません。閉じると消えます。日本語も使えます）
+                </span>
+              </span>
+              <input
+                type="password"
+                value={passphrase}
+                onChange={e => setPassphrase(e.target.value)}
+                autoComplete="off"
+                style={{ ...selectStyle, width: '100%', maxWidth: 380 }}
+              />
+            </label>
+          </div>
+
+          <div
+            style={{
+              marginTop: S.sm,
+              padding: `${S.xs}px ${S.sm}px`,
+              background: C.warnSoft,
+              border: `1px solid ${C.warn}`,
+              borderRadius: R.sm,
+              fontSize: 11,
+              color: C.warn,
+              lineHeight: 1.7,
+            }}
+          >
+            中継サーバーを置くと、そのURLと合言葉を知っている人は生産データを取得できます。
+            合言葉は長いものにし、社外に出さないでください。
+            合言葉は Smart Craft のAPIキーとは別物なので、
+            漏れたときは合言葉だけ変えれば締め出せます。
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 2, lineHeight: 1.7 }}>
+          手元の開発サーバーが中継します。APIキーは開発サーバーが持ち、
+          <strong>ブラウザには渡りません</strong>。使うには <code>.env.local</code> に
+          <code>SMARTCRAFT_API_KEY</code> を書いてください（<code>.env.example</code> が雛形です）。
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: S.sm, alignItems: 'end', marginTop: S.sm, flexWrap: 'wrap' }}>
         <label style={{ display: 'grid', gap: 2 }}>
@@ -285,16 +375,17 @@ function ApiSource({
         </label>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !ready}
           onClick={() => void run()}
+          title={ready ? undefined : '中継サーバーのURLと合言葉を入れてください'}
           style={{
             fontSize: 12.5,
             padding: '7px 14px',
             borderRadius: R.sm,
             border: 'none',
-            background: busy ? C.border : C.accent,
-            color: busy ? C.textFaint : '#fff',
-            cursor: busy ? 'wait' : 'pointer',
+            background: busy || !ready ? C.border : C.accent,
+            color: busy || !ready ? C.textFaint : '#fff',
+            cursor: busy ? 'wait' : ready ? 'pointer' : 'not-allowed',
           }}
         >
           {busy ? '取得中…' : 'APIから取り込む'}

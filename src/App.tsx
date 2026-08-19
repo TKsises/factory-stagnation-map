@@ -105,6 +105,15 @@ export default function App() {
     [config]
   )
 
+  const handleRelayBaseChange = useCallback(
+    (v: string) => {
+      const nextConfig = { ...config, apiRelayBase: v }
+      setConfig(nextConfig)
+      saveConfig(nextConfig)
+    },
+    [config]
+  )
+
   const handleReguess = useCallback(() => {
     if (!table) return
     setMapping(guessMapping(table.headers))
@@ -155,7 +164,13 @@ export default function App() {
             </p>
           </div>
           {error && <ErrorBox message={error} />}
-          <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
+          <ImportPanel
+            table={table}
+            onLoaded={handleLoaded}
+            onError={setError}
+            relayBase={config.apiRelayBase}
+            onRelayBaseChange={handleRelayBaseChange}
+          />
         </div>
       </div>
     )
@@ -217,7 +232,13 @@ export default function App() {
             onOpenLayout={() => setLayoutOpen(true)}
           />
         ) : (
-          <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
+          <ImportPanel
+            table={table}
+            onLoaded={handleLoaded}
+            onError={setError}
+            relayBase={config.apiRelayBase}
+            onRelayBaseChange={handleRelayBaseChange}
+          />
         )}
 
         {diag && !diag.canCompute && <DiagnosticsPanel diag={diag} />}
