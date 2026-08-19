@@ -130,6 +130,11 @@ export type Config = {
   processLayout: Record<string, string>
   /** どのキーでレイアウトと対応づけるか。後から片方に決め打ちすると作り直しになる */
   layoutKeyKind: 'process' | 'workCenter' | 'equipment'
+  /**
+   * API中継サーバーのURL。配信サイトから使うときだけ要る。
+   * ★秘密ではない（合言葉とAPIキーは別。合言葉は保存しない）
+   */
+  apiRelayBase: string
   /** ID採番カウンタ。必ず保存する（要素数から復元してはいけない） */
   seq: number
 }
@@ -168,5 +173,6 @@ export const DEFAULT_CONFIG: Config = {
   calendar: DEFAULT_CALENDAR,
   processLayout: {},
   layoutKeyKind: 'process',
+  apiRelayBase: '',
   seq: 0,
 }

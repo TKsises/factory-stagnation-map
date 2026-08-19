@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildLots } from './lots'
 import { guessMapping } from './mapping'
 import {
+  encodePassphrase,
   extractRecords,
   extractTotal,
   FACTORY_TIME_ZONE,
@@ -341,5 +342,121 @@ describe('失敗したときの言い方', () => {
     await expect(
       fetchProcessResults({}, { fetchFn: failWith(500), sleep: async () => {} })
     ).rejects.toThrow(/HTTP 500/)
+  })
+
+  it('403 は合言葉の間違いだと言う（中継サーバーが撥ねた）', async () => {
+    await expect(
+      fetchProcessResults(
+        {},
+        { fetchFn: failWith(403), sleep: async () => {}, relayBase: 'https://r.example.com' }
+      )
+    ).rejects.toThrow(/合言葉/)
+  })
+
+  it('中継経由の401は .env.local ではなく中継サーバーを案内する', async () => {
+    await expect(
+      fetchProcessResults(
+        {},
+        { fetchFn: failWith(401), sleep: async () => {}, relayBase: 'https://r.example.com' }
+      )
+    ).rejects.toThrow(/中継サーバー/)
+  })
+})
+
+describe('中継サーバー経由で取る（配信サイトから使うとき）', () => {
+  /** 呼ばれたURLとヘッダーを記録する fetch */
+  function spyFetch() {
+    const calls: { url: string; headers: Record<string, string> | undefined }[] = []
+    const fetchFn = (async (url: string, init?: { headers?: Record<string, string> }) => {
+      calls.push({ url, headers: init?.headers })
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ process_results: [RECORD], paging: { total: 1 } }),
+      }
+    }) as unknown as typeof fetch
+    return { calls, fetchFn }
+  }
+
+  it('中継先を指定すると、そこへ取りに行く', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults({}, { fetchFn, sleep: async () => {}, relayBase: 'https://r.example.com' })
+    expect(calls[0].url).toMatch(/^https:\/\/r\.example\.com\/process_results\?/)
+  })
+
+  it('末尾のスラッシュがあっても URL が壊れない', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults(
+      {},
+      { fetchFn, sleep: async () => {}, relayBase: 'https://r.example.com///' }
+    )
+    expect(calls[0].url).not.toContain('//process_results')
+  })
+
+  it('中継先を指定しなければ開発サーバーの中継を使う', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults({}, { fetchFn, sleep: async () => {} })
+    expect(calls[0].url).toMatch(/^\/api\/smartcraft\/process_results\?/)
+  })
+
+  it('合言葉は専用のヘッダーで送る', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults(
+      {},
+      {
+        fetchFn,
+        sleep: async () => {},
+        relayBase: 'https://r.example.com',
+        relayPassphrase: 'pass-1234',
+      }
+    )
+    expect(calls[0].headers?.['X-Relay-Passphrase']).toBe(encodePassphrase('pass-1234'))
+  })
+
+  // ★実測: HTTPヘッダーは1バイト文字しか運べず、日本語をそのまま入れると
+  //   fetch が TypeError で落ちる。日本語の合言葉は自然に思いつくので必ず通す。
+  it('★日本語の合言葉でも、ヘッダーに載る形になる', () => {
+    const encoded = encodePassphrase('ながい-あいことば-1234567890')
+    expect(encoded).toMatch(/^[A-Za-z0-9+/=]+$/)
+    // 実際に Request に載せられることまで確かめる（載らなければ例外になる）
+    expect(() => new Request('http://x/', { headers: { 'X-Relay-Passphrase': encoded } })).not.toThrow()
+  })
+
+  it('日本語の合言葉をそのまま載せると落ちる（だから変換している）', () => {
+    expect(
+      () => new Request('http://x/', { headers: { 'X-Relay-Passphrase': 'あいことば' } })
+    ).toThrow()
+  })
+
+  it('違う合言葉は違う値になる', () => {
+    expect(encodePassphrase('あ')).not.toBe(encodePassphrase('い'))
+  })
+
+  it('★合言葉を Authorization に入れない（そこは中継がMESの鍵を入れる場所）', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults(
+      {},
+      {
+        fetchFn,
+        sleep: async () => {},
+        relayBase: 'https://r.example.com',
+        relayPassphrase: 'あいことば',
+      }
+    )
+    expect(calls[0].headers?.Authorization).toBeUndefined()
+  })
+
+  it('★合言葉をURLに載せない（履歴やログに残るため）', async () => {
+    const { calls, fetchFn } = spyFetch()
+    await fetchProcessResults(
+      {},
+      {
+        fetchFn,
+        sleep: async () => {},
+        relayBase: 'https://r.example.com',
+        relayPassphrase: 'あいことば',
+      }
+    )
+    expect(calls[0].url).not.toContain('あいことば')
   })
 })

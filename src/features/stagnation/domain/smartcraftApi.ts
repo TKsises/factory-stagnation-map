@@ -230,6 +230,41 @@ export type FetchDeps = {
   fetchFn?: typeof fetch
   sleep?: (ms: number) => Promise<void>
   onProgress?: (p: FetchProgress) => void
+  /**
+   * 中継先。省略すると開発サーバーの中継（`/api/smartcraft`）を使う。
+   * ★配信サイト（GitHub Pages）には中継が無いので、利用者が自分で立てた
+   *   中継サーバーのURLをここに渡す。APIキーは中継サーバーの環境変数にあり、
+   *   ブラウザには決して渡らない。
+   */
+  relayBase?: string
+  /**
+   * 中継サーバーの合言葉。
+   * ★これは Smart Craft のAPIキーではない。中継サーバーを公開の場に置くと
+   *   URLを知った人が誰でも生産データを引けてしまうので、中継サーバー側で
+   *   合言葉を照合する。漏れてもMES側の鍵は無事で、合言葉だけ変えれば済む。
+   *   ★保存しない（画面を閉じたら消える）。共用のPCに残さないため。
+   */
+  relayPassphrase?: string
+}
+
+/** 中継先を正規化する。末尾のスラッシュで `//process_results` にならないように */
+export function normalizeRelayBase(base: string): string {
+  return base.trim().replace(/\/+$/, '')
+}
+
+/**
+ * 合言葉をヘッダーに載せられる形にする。
+ * ★HTTPヘッダーは1バイト文字しか運べない。日本語の合言葉をそのまま入れると
+ *   `fetch` が TypeError で落ちる（実測で確認）。日本語の合言葉を思いつくのは
+ *   自然なので、こちらで直す。
+ * ★base64 は暗号ではない。中身は誰でも戻せる。ここでやっているのは
+ *   「運べる形にする」ことだけで、守っているのは HTTPS と合言葉そのもの。
+ */
+export function encodePassphrase(pass: string): string {
+  const bytes = new TextEncoder().encode(pass)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
 }
 
 const defaultSleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
@@ -246,6 +281,11 @@ export async function fetchProcessResults(
   const sleep = deps.sleep ?? defaultSleep
   const perPage = Math.min(query.perPage ?? MAX_PER_PAGE, MAX_PER_PAGE)
   const maxPages = query.maxPages ?? 30
+  const base = deps.relayBase ? normalizeRelayBase(deps.relayBase) : API_PROXY_BASE
+  // 合言葉は Authorization に入れない（そこは中継サーバーがMESの鍵を入れる場所）
+  const headers = deps.relayPassphrase
+    ? { 'X-Relay-Passphrase': encodePassphrase(deps.relayPassphrase) }
+    : undefined
 
   const all: unknown[] = []
   let page = 1
@@ -255,14 +295,19 @@ export async function fetchProcessResults(
     if (query.resultStartedFrom) params.set('result_started_at_from', query.resultStartedFrom)
     if (query.resultStartedTo) params.set('result_started_at_to', query.resultStartedTo)
 
-    const res = await doFetch(`${API_PROXY_BASE}/process_results?${params.toString()}`)
+    const res = await doFetch(`${base}/process_results?${params.toString()}`, { headers })
     if (!res.ok) {
+      const viaRelay = base !== API_PROXY_BASE
       const hint =
         res.status === 401
-          ? 'APIキーが設定されていないか、権限がありません（.env.local を確認してください）'
-          : res.status === 429
-            ? 'レート制限に達しました（10リクエスト/分）。しばらく待って再実行してください'
-            : `HTTP ${res.status}`
+          ? viaRelay
+            ? 'APIキーが中継サーバーに設定されていないか、権限がありません'
+            : 'APIキーが設定されていないか、権限がありません（.env.local を確認してください）'
+          : res.status === 403
+            ? '中継サーバーが受け付けませんでした。合言葉を確認してください'
+            : res.status === 429
+              ? 'レート制限に達しました（10リクエスト/分）。しばらく待って再実行してください'
+              : `HTTP ${res.status}`
       throw new Error(`工程実績を取得できませんでした：${hint}`)
     }
 

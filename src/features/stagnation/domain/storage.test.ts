@@ -122,3 +122,33 @@ describe('normalizeConfig ― レイアウト対応表', () => {
     expect(normalizeConfig({ layoutKeyKind: 'workCenter' }).layoutKeyKind).toBe('workCenter')
   })
 })
+
+describe('normalizeConfig ― API中継サーバーのURL', () => {
+  it('http / https は通す', () => {
+    expect(normalizeConfig({ apiRelayBase: 'https://r.workers.dev' }).apiRelayBase).toBe(
+      'https://r.workers.dev'
+    )
+    expect(normalizeConfig({ apiRelayBase: 'http://localhost:8787' }).apiRelayBase).toBe(
+      'http://localhost:8787'
+    )
+  })
+
+  it('★http / https 以外は捨てる', () => {
+    // 設定はJSONで書き出し・読み込みできるので、外から来る値として扱う。
+    // javascript: を仕込まれたものをそのまま fetch しない
+    expect(normalizeConfig({ apiRelayBase: 'javascript:alert(1)' }).apiRelayBase).toBe('')
+    expect(normalizeConfig({ apiRelayBase: 'data:text/html,x' }).apiRelayBase).toBe('')
+    expect(normalizeConfig({ apiRelayBase: 'ふつうの文字列' }).apiRelayBase).toBe('')
+    expect(normalizeConfig({ apiRelayBase: 42 }).apiRelayBase).toBe('')
+  })
+
+  it('末尾のスラッシュを落とす', () => {
+    expect(normalizeConfig({ apiRelayBase: 'https://r.workers.dev///' }).apiRelayBase).toBe(
+      'https://r.workers.dev'
+    )
+  })
+
+  it('未設定なら空', () => {
+    expect(normalizeConfig(null).apiRelayBase).toBe('')
+  })
+})

@@ -20,6 +20,22 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/
 
+/**
+ * 中継サーバーのURL。http/https 以外は受けない。
+ * ★`javascript:` や `data:` を書き込まれたものをそのまま fetch しないため。
+ *   設定はJSONで書き出し・読み込みできるので、外から来る値として扱う。
+ */
+function normalizeRelayUrl(v: unknown): string {
+  const s = str(v).trim().replace(/\/+$/, '')
+  if (s === '') return ''
+  try {
+    const u = new URL(s)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? s : ''
+  } catch {
+    return ''
+  }
+}
+
 function normalizeMapping(input: unknown): ColumnMapping {
   const out: ColumnMapping = { ...EMPTY_MAPPING }
   if (!isObj(input)) return out
@@ -99,6 +115,7 @@ export function normalizeConfig(input: unknown): Config {
     calendar: normalizeCalendar(input.calendar),
     processLayout: normalizeStringMap(input.processLayout),
     layoutKeyKind,
+    apiRelayBase: normalizeRelayUrl(input.apiRelayBase),
     seq,
   }
 }
