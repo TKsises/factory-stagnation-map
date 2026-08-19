@@ -505,3 +505,32 @@ base64 は暗号ではない。運べる形にしているだけで、守って�
 
 **配信ビルドの確認は `vite preview` で行う。** `import.meta.env.DEV` で出し分けているので、
 開発サーバーでは中継の入力欄そのものが出ない。
+
+## Cloudflare にリポジトリを繋ぐと、中継ではなくアプリが置かれる
+
+Workers & Pages でこのリポジトリを import したら、Cloudflare が Vite アプリと判断し、
+**`dist/` を配信する設定**でデプロイされた。中継は動いていなかった。
+
+```
+GET https://xxxx.workers.dev/process_results
+→ 403 ではなく index.html が返る（中継に届いていない）
+```
+
+→ `wrangler.jsonc` を置き、`main` を `relay/worker.js` にする。
+そのうえで **`assets.run_worker_first: true` が必須**。
+assets を先にすると `not_found_handling: single-page-application` の取りこぼし処理が
+`/process_results` まで index.html で返してしまう。
+
+### アプリと中継を1つの Worker にすると、CORS の設定が要らなくなる
+
+同じ生成元になるので `ALLOWED_ORIGIN` を設定し忘れて詰まることが無い。
+`relay/worker.js` は、中継する経路以外を `env.ASSETS.fetch(request)` に渡す。
+`ASSETS` が無いとき（中継だけの Worker）は404にするので、両方の置き方ができる。
+
+### 同じ生成元に中継があるかは、403 を目印にして調べる
+
+合言葉なしで `/process_results` を叩けば 403 と JSON が返る。これを目印にする。
+確認専用の入口を増やさない（入口を増やすと守る対象が増える）。
+**分からないときは必ず「無し」に倒す。** 「たぶんある」で進めると、
+中継が無い場所で取り込みボタンが押せてしまい、何が悪いのか分からなくなる。
+配信サイトでは404のHTMLが返り、JSONとして読めずに例外になるので、そこで「無し」になる。

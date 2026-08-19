@@ -109,29 +109,46 @@ npm run dev
 検証環境の鍵を使うときは `SMARTCRAFT_API_BASE` も書きます。
 **検証環境で発行した鍵を本番URLに送ると 401 になります**（実際に踏みました）。
 
-### 2-2. 配信サイトから使う（中継サーバーを立てる）
+### 2-2. Cloudflare Workers に置いて使う（推奨）
 
-`relay/worker.js` を Cloudflare Workers に置きます。手順はファイルの先頭に書いてあります。
+このリポジトリを Cloudflare Workers に繋ぐと、`wrangler.jsonc` の設定で
+**アプリ本体と中継が1つの Worker** として置かれます。
+アプリと中継が同じ生成元になるので、**中継URLの入力も CORS の設定も要りません。**
 
-1. Workers & Pages → Create → Worker に `relay/worker.js` の中身を貼って Deploy
-2. Settings → Variables and Secrets に3つ入れる（**Secret** にすること）
+1. https://dash.cloudflare.com → Workers & Pages → このリポジトリを import
+2. Settings → Variables and Secrets に2つ入れる（★**Secret** にすること）
    - `SMARTCRAFT_API_KEY` … Smart Craft のAPIキー
    - `RELAY_PASSPHRASE` … 自分で決めた長い合言葉（20文字以上を推奨。日本語も可）
-   - `ALLOWED_ORIGIN` … `https://tksises.github.io`
-3. 付いたURLを、アプリの「中継サーバーのURL」に入れる
-4. 合言葉を入れて「APIから取り込む」
+3. 付いたURL（`https://xxxx.workers.dev`）を開く。
+   取り込み欄に「この場所に中継サーバーがあります」と出れば成功。合言葉だけ入れて取り込む
+
+検証環境の鍵を使うときは `SMARTCRAFT_API_BASE` も足します。
+
+| 経路 | 何を返すか |
+| --- | --- |
+| `/process_results` | 中継（合言葉を照合してから Smart Craft API に取りに行く） |
+| それ以外 | アプリ本体（`dist/`） |
+
+### 2-3. 別の場所のアプリから使う（GitHub Pages など）
+
+GitHub Pages のアプリからも同じ中継を使えます。この場合だけ CORS の設定が要ります。
+
+1. Worker に `ALLOWED_ORIGIN` を足す（例 `https://tksises.github.io`）
+2. アプリの「中継サーバーのURL」に Worker のURLを入れる
+3. 合言葉を入れて取り込む
+
+### 中継を置くときに必ず知っておくこと
 
 **★中継サーバーを置くと、URLと合言葉を知っている人は生産データを取得できます。**
 だから錠を2つかけています。
 
 | 錠 | 効く相手 |
 | --- | --- |
-| `ALLOWED_ORIGIN`（CORS） | ブラウザ。他サイトからの読み出しを止める |
+| `ALLOWED_ORIGIN`（CORS） | ブラウザだけ。**curl には効きません** |
 | `RELAY_PASSPHRASE`（合言葉） | **curl にも効く。こちらが本体** |
 
 合言葉は Smart Craft のAPIキーとは別物です。漏れても MES 側の鍵は無事で、
 合言葉だけ変えれば締め出せます。**アプリは合言葉を保存しません**（画面を閉じると消えます）。
-中継サーバーのURLだけを設定として保存します。
 
 通すのは `GET /process_results` だけです。書き込み系は通しません。
 
