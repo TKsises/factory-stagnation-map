@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
 import { CostPanel } from './features/stagnation/components/CostPanel'
 import { DiagnosticsPanel } from './features/stagnation/components/DiagnosticsPanel'
-import { Disclosure } from './features/stagnation/components/Disclosure'
 import { ExportPanel } from './features/stagnation/components/ExportPanel'
 import { HeaderBar } from './features/stagnation/components/HeaderBar'
 import { ImportPanel } from './features/stagnation/components/ImportPanel'
+import { LayoutFullView } from './features/stagnation/components/LayoutFullView'
 import { LayoutPanel } from './features/stagnation/components/LayoutPanel'
 import { LotListPanel } from './features/stagnation/components/LotListPanel'
 import { MappingPanel } from './features/stagnation/components/MappingPanel'
@@ -12,6 +12,7 @@ import { PreviewTable } from './features/stagnation/components/PreviewTable'
 import { QualityPanel } from './features/stagnation/components/QualityPanel'
 import { SelectionDetail, type Selection } from './features/stagnation/components/SelectionDetail'
 import { StagnationMap } from './features/stagnation/components/StagnationMap'
+import { Tabs, type TabDef } from './features/stagnation/components/Tabs'
 import { computeGaps } from './features/stagnation/domain/gaps'
 import type { LayoutView } from './features/stagnation/domain/layout'
 import { buildBands } from './features/stagnation/domain/layoutLink'
@@ -33,22 +34,21 @@ import { EMPTY_MAPPING } from './features/stagnation/domain/types'
 /**
  * 画面の骨格
  *
- * ★滞留マップが主役。それ以外は既定で閉じておく。
- *   最初から11枚のパネルを縦に並べると、どこを見ればいいのか分からなくなる。
- *   「地図を見る → 気になったところを押す → そこだけ詳しく出る」の順にする。
+ * ★滞留マップが主役。上に対象期間と主要な3つの数字、下にタブ。
+ *   折りたたみを積み重ねていたが、開くまで何があるか分からないのでタブにした。
+ * ★工場レイアウトは専用ビューで開く。折りたたみの中では狭すぎて図が読めない。
  */
 export default function App() {
   const [config, setConfig] = useState<Config>(() => loadConfig())
-
-  // 推測しただけの対応づけは保存しない（ユーザーが確定したものだけ保存する）
   const [mapping, setMapping] = useState<ColumnMapping>(EMPTY_MAPPING)
-
   const [table, setTable] = useState<RawTable | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadMs, setLoadMs] = useState<number | null>(null)
   const [mappingSource, setMappingSource] = useState<'saved' | 'guessed' | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [shortenDays, setShortenDays] = useState(1)
+  const [tab, setTab] = useState('map')
+  const [layoutOpen, setLayoutOpen] = useState(false)
 
   // レイアウトは「取り込んだ実データ」。保存せず毎回読み直す
   const [layout, setLayout] = useState<LayoutView | null>(null)
@@ -60,6 +60,7 @@ export default function App() {
       setTable(raw)
       setLoadMs(elapsedMs)
       setSelection(null)
+      setTab('map')
       const chosen = chooseMapping(config.mapping, raw.headers)
       setMapping(chosen.mapping)
       setMappingSource(chosen.source)
@@ -139,7 +140,7 @@ export default function App() {
     boxSizing: 'border-box' as const,
   }
 
-  // ── 読み込み前：取り込みだけを大きく出す ──
+  // ── 読み込み前 ──
   if (!table) {
     return (
       <div style={page}>
@@ -160,15 +161,46 @@ export default function App() {
     )
   }
 
-  const costStatus =
-    analysis === null
-      ? ''
-      : analysis.metrics.money.frozenJPY === null
-        ? `未設定（${analysis.metrics.money.items.length} 品目）`
-        : `${analysis.metrics.money.lotsPriced.toLocaleString()} 件で算出済み`
+  const canLayout = layout !== null && link !== null && link.bands.length > 0
+
+  const tabs: TabDef[] = analysis
+    ? [
+        { id: 'map', label: '滞留マップ' },
+        { id: 'lots', label: 'ロット別実績', badge: analysis.lotRows.length.toLocaleString() },
+        {
+          id: 'cost',
+          label: '原価と金額',
+          badge: analysis.metrics.money.frozenJPY === null ? '未設定' : '設定済み',
+          attention: analysis.metrics.money.frozenJPY === null,
+        },
+        { id: 'layout', label: '工場レイアウト', badge: layout === null ? '未読み込み' : `${link?.linkedCount ?? 0}/${analysis.metrics.flow.length}`, attention: layout !== null && (link?.unlinked.length ?? 0) > 0 },
+        { id: 'quality', label: 'データ品質', badge: `${analysis.metrics.summary.rateLots.toLocaleString()}件` },
+        {
+          id: 'mapping',
+          label: '列の対応づけ',
+          badge: mappingSource === 'guessed' ? '推測' : undefined,
+          attention: !diag?.canCompute,
+        },
+        { id: 'export', label: '書き出し' },
+      ]
+    : [{ id: 'mapping', label: '列の対応づけ', attention: true }]
+
+  const activeTab = tabs.some(t => t.id === tab) ? tab : tabs[0].id
 
   return (
     <div style={page}>
+      {layoutOpen && layout && link && (
+        <LayoutFullView
+          layout={layout}
+          link={link}
+          onClose={() => setLayoutOpen(false)}
+          onOpenLinkTable={() => {
+            setLayoutOpen(false)
+            setTab('layout')
+          }}
+        />
+      )}
+
       <div style={{ maxWidth: 1180, margin: '0 auto', display: 'grid', gap: S.md }}>
         {error && <ErrorBox message={error} />}
 
@@ -181,125 +213,89 @@ export default function App() {
               setSelection(null)
               setLoadMs(null)
             }}
+            canLayout={canLayout}
+            onOpenLayout={() => setLayoutOpen(true)}
           />
         ) : (
           <ImportPanel table={table} onLoaded={handleLoaded} onError={setError} />
         )}
 
-        {/* ── 主役：滞留マップ と、押したものの詳細 ── */}
-        {analysis && (
-          <>
-            <StagnationMap
-              metrics={analysis.metrics}
-              selection={selection}
-              onSelect={setSelection}
-            />
-            <SelectionDetail
-              metrics={analysis.metrics}
-              selection={selection}
-              onSelect={setSelection}
-            />
-          </>
-        )}
-
-        {/* ── 実績列が無いときは、ここで止める ── */}
         {diag && !diag.canCompute && <DiagnosticsPanel diag={diag} />}
 
-        {/* ── 以下は既定で閉じている ── */}
-        {analysis && (
-          <>
-            <Disclosure
-              title="原価を入れて金額を出す"
-              status={costStatus}
-              attention={analysis.metrics.money.frozenJPY === null}
-            >
-              <CostPanel
+        <Tabs tabs={tabs} active={activeTab} onChange={setTab}>
+          {analysis && activeTab === 'map' && (
+            <div style={{ display: 'grid', gap: S.md }}>
+              <StagnationMap
                 metrics={analysis.metrics}
-                costs={config.costs}
-                onCostChange={handleCostChange}
-                shortenDays={shortenDays}
-                onShortenDaysChange={setShortenDays}
+                selection={selection}
+                onSelect={setSelection}
               />
-            </Disclosure>
-
-            <Disclosure
-              title="提案用の一枚を書き出す"
-              status={link && link.bands.length > 0 ? '流れ / レイアウトの2種類' : '流れの図'}
-            >
-              <ExportPanel
+              <SelectionDetail
                 metrics={analysis.metrics}
-                shortenDays={shortenDays}
-                costs={config.costs}
-                sourceFileName={table.fileName}
-                layout={layout}
-                link={link}
+                selection={selection}
+                onSelect={setSelection}
               />
-            </Disclosure>
+            </div>
+          )}
 
-            <Disclosure
-              title="ロットを1件ずつ追う"
-              status={`${analysis.lotRows.length.toLocaleString()} 件`}
-            >
-              <LotListPanel rows={analysis.lotRows} metrics={analysis.metrics} />
-            </Disclosure>
+          {analysis && activeTab === 'lots' && (
+            <LotListPanel rows={analysis.lotRows} metrics={analysis.metrics} />
+          )}
 
-            <Disclosure
-              title="工場レイアウトに重ねる"
-              status={
-                layout === null
-                  ? '未読み込み'
-                  : link
-                    ? `${link.linkedCount} / ${analysis.metrics.flow.length} 工程が対応済み`
-                    : ''
-              }
-              attention={layout !== null && link !== null && link.unlinked.length > 0}
-            >
-              <LayoutPanel
-                metrics={analysis.metrics}
-                layout={layout}
-                layoutFileName={layoutFileName}
-                onLayoutLoaded={(v, name) => {
-                  setLayout(v)
-                  setLayoutFileName(name)
-                }}
-                processLayout={config.processLayout}
-                onLinkChange={handleLinkChange}
-                link={link}
-              />
-            </Disclosure>
-
-            <Disclosure
-              title="この数字の根拠（データ品質）"
-              status={analysis.metrics.quality.sentence.replace('この数字は ', '')}
-            >
-              <QualityPanel quality={analysis.metrics.quality} build={analysis.buildStats} />
-            </Disclosure>
-          </>
-        )}
-
-        <Disclosure
-          title="列の対応づけを直す"
-          status={
-            mappingSource === 'saved'
-              ? '前回あなたが確定した対応づけ'
-              : mappingSource === 'guessed'
-                ? '列名から推測（未確認）'
-                : '確定済み'
-          }
-          attention={diag !== null && !diag.canCompute}
-          defaultOpen={diag !== null && !diag.canCompute}
-        >
-          <div style={{ display: 'grid', gap: S.md }}>
-            <MappingPanel
-              table={table}
-              mapping={mapping}
-              onChange={handleMappingChange}
-              onReguess={handleReguess}
+          {analysis && activeTab === 'cost' && (
+            <CostPanel
+              metrics={analysis.metrics}
+              costs={config.costs}
+              onCostChange={handleCostChange}
+              shortenDays={shortenDays}
+              onShortenDaysChange={setShortenDays}
             />
-            {diag && diag.canCompute && <DiagnosticsPanel diag={diag} />}
-            <PreviewTable table={table} mapping={mapping} />
-          </div>
-        </Disclosure>
+          )}
+
+          {analysis && activeTab === 'layout' && (
+            <LayoutPanel
+              metrics={analysis.metrics}
+              layout={layout}
+              layoutFileName={layoutFileName}
+              onLayoutLoaded={(v, name) => {
+                setLayout(v)
+                setLayoutFileName(name)
+              }}
+              processLayout={config.processLayout}
+              onLinkChange={handleLinkChange}
+              link={link}
+              onOpenFullView={canLayout ? () => setLayoutOpen(true) : undefined}
+            />
+          )}
+
+          {analysis && activeTab === 'quality' && (
+            <QualityPanel quality={analysis.metrics.quality} build={analysis.buildStats} />
+          )}
+
+          {activeTab === 'mapping' && (
+            <div style={{ display: 'grid', gap: S.md }}>
+              <MappingPanel
+                table={table}
+                mapping={mapping}
+                onChange={handleMappingChange}
+                onReguess={handleReguess}
+              />
+              {diag && diag.canCompute && <DiagnosticsPanel diag={diag} />}
+              <PreviewTable table={table} mapping={mapping} />
+            </div>
+          )}
+
+          {analysis && activeTab === 'export' && (
+            <ExportPanel
+              metrics={analysis.metrics}
+              shortenDays={shortenDays}
+              costs={config.costs}
+              sourceFileName={table.fileName}
+              layout={layout}
+              link={link}
+            />
+          )}
+        </Tabs>
 
         {loadMs !== null && (
           <div style={{ fontSize: 11, color: C.textFaint, textAlign: 'right' }}>

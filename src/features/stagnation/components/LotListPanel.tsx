@@ -276,8 +276,23 @@ function LotRowView({
           ))}
         </div>
 
+        {/* 加工と滞留の比率。数字だけだと「4日」が長いのか短いのか分からない */}
         <div style={{ fontSize: 12, textAlign: 'right', fontWeight: 650 }}>
           {formatDays(toDays(row.stagnationHours))}
+          {row.leadHours !== null && row.leadHours > 0 && (
+            <div
+              style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 3 }}
+              title={`加工など ${formatDays(toDays(Math.max(0, row.leadHours - row.stagnationHours)))} ／ 滞留 ${formatDays(toDays(row.stagnationHours))}`}
+            >
+              <div
+                style={{
+                  width: `${Math.max(0, 100 - (row.stagnationHours / row.leadHours) * 100)}%`,
+                  background: C.ok,
+                }}
+              />
+              <div style={{ flex: 1, background: C.sev3 }} />
+            </div>
+          )}
         </div>
         <div style={{ fontSize: 11.5, textAlign: 'right', color: C.textSub }}>
           {row.amountJPY === null ? '原価未設定' : formatJPY(row.amountJPY)}

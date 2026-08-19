@@ -24,6 +24,7 @@ type Props = {
   onLinkChange: (processCode: string, itemCode: string) => void
   /** 帯の計算は App が1箇所で行い、書き出し画像と同じものを使う */
   link: LinkReport | null
+  onOpenFullView?: () => void
 }
 
 const VIEW_W = 1090
@@ -37,6 +38,7 @@ export function LayoutPanel({
   processLayout,
   onLinkChange,
   link,
+  onOpenFullView,
 }: Props) {
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -209,6 +211,27 @@ export function LayoutPanel({
                   がこの図に出ていません。図だけを見ると実態より少なく見えます。
                 </>
               )}
+            </div>
+          )}
+
+          {onOpenFullView && (
+            <div style={{ marginTop: S.md }}>
+              <button
+                type="button"
+                onClick={onOpenFullView}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 650,
+                  padding: '9px 16px',
+                  borderRadius: R.md,
+                  border: 'none',
+                  background: C.accent,
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                全画面で見る（ズーム・移動ができます）
+              </button>
             </div>
           )}
 

@@ -6,6 +6,8 @@ type Props = {
   metrics: Metrics
   fileName: string
   onReset: () => void
+  canLayout: boolean
+  onOpenLayout: () => void
 }
 
 const fmtDate = (d: Date | null) =>
@@ -16,7 +18,7 @@ const fmtDate = (d: Date | null) =>
  * 最初から全部出すと、どこを見ればいいのか分からなくなる。
  * 内訳は、地図で工程や工程間を触ったときに出す。
  */
-export function HeaderBar({ metrics, fileName, onReset }: Props) {
+export function HeaderBar({ metrics, fileName, onReset, canLayout, onOpenLayout }: Props) {
   const { summary, money, quality } = metrics
 
   const cells: Array<{ label: string; value: string; sub: string; accent?: boolean }> = [
@@ -59,11 +61,30 @@ export function HeaderBar({ metrics, fileName, onReset }: Props) {
       >
         <strong style={{ fontSize: 15, color: C.text, fontWeight: 700 }}>工程滞留マップ</strong>
         <span>{fileName}</span>
+        {canLayout && (
+          <button
+            type="button"
+            onClick={onOpenLayout}
+            style={{
+              marginLeft: 'auto',
+              fontSize: 12,
+              fontWeight: 650,
+              padding: '5px 12px',
+              borderRadius: R.sm,
+              border: 'none',
+              background: C.accent,
+              color: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            工場レイアウト図で見る
+          </button>
+        )}
         <button
           type="button"
           onClick={onReset}
           style={{
-            marginLeft: 'auto',
+            marginLeft: canLayout ? undefined : 'auto',
             fontSize: 11.5,
             padding: '4px 10px',
             borderRadius: R.sm,
