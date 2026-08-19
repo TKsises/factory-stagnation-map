@@ -64,6 +64,18 @@ const DEFAULT_API_BASE = 'https://api.smartcraft.jp/api/v1'
 /** 通してよい経路。増やすときは「読み取りだけ」を守る */
 const ALLOWED_PATHS = ['/process_results']
 
+/**
+ * 設定が足りないときの文言。
+ * ★「設定されていません」だけだと、どこで何をすればいいのか分からない。
+ *   ★Secret ではなく平文の Variable として入れると、次の Git デプロイで
+ *   消える（wrangler の設定が正となり、そこに無い平文の変数は削除される）。
+ *   Secret は消えない。ここで踏んだので文言に残す。
+ */
+const MISSING = name =>
+  `${name} が Worker に届いていません。Cloudflare → Settings → Variables and Secrets で、` +
+  `種類を「Secret」にして ${name} を追加し、保存後に Deploy してください。` +
+  `（平文の Variable として入れると、次のデプロイで消えます）`
+
 export default {
   async fetch(request, env) {
     const origin = env.ALLOWED_ORIGIN ?? ''
@@ -87,12 +99,15 @@ export default {
       return json({ error: 'GET だけを受け付けます' }, 405, origin)
     }
 
-    // 設定漏れに気づかないまま公開されるのがいちばん危ないので、明示的に落とす
-    if (!env.SMARTCRAFT_API_KEY) {
-      return json({ error: 'SMARTCRAFT_API_KEY が設定されていません' }, 500, origin)
-    }
+    // ★確認する順番が大事。
+    //   以前は API キーの有無を先に見ていたため、合言葉が合っていても
+    //   間違っていても同じ 500 が返り、「合言葉を入れても直らない」と
+    //   切り分けられなかった。合言葉の照合を先に置く。
+    //   ついでに、合言葉を知らない人に設定状況を教えないで済む。
+
+    // 合言葉そのものが未設定だと誰も入れないので、これだけは言うしかない
     if (!env.RELAY_PASSPHRASE) {
-      return json({ error: 'RELAY_PASSPHRASE が設定されていません' }, 500, origin)
+      return json({ error: MISSING('RELAY_PASSPHRASE') }, 500, origin)
     }
 
     // ★ブラウザ側と同じ形（UTF-8 → base64）にしてから比べる。
@@ -101,6 +116,11 @@ export default {
     const sent = request.headers.get('X-Relay-Passphrase') ?? ''
     if (!timingSafeEqual(sent, encodePassphrase(env.RELAY_PASSPHRASE))) {
       return json({ error: '合言葉が違います' }, 403, origin)
+    }
+
+    // ここから先は合言葉が合った人だけ。設定漏れを黙って通さない
+    if (!env.SMARTCRAFT_API_KEY) {
+      return json({ error: MISSING('SMARTCRAFT_API_KEY') }, 500, origin)
     }
 
     const apiBase = (env.SMARTCRAFT_API_BASE || DEFAULT_API_BASE).replace(/\/+$/, '')

@@ -68,7 +68,7 @@ export default defineConfig(({ mode }) => {
   // 画面に出るものは実ブラウザで確認する（型が通った・テストが緑は動作確認の代わりにならない）。
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'relay/**/*.test.js'],
   },
   }
 })
