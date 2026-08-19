@@ -30,7 +30,15 @@ jobs:
       - run: npm ci
       # 壊れたものを公開しないため、型・テスト・静的解析を通してからビルドする
       - run: npm run typecheck
+      # ★時間帯を変えて2回回す。
+      #   手元は日本時間、CI(ubuntu)は UTC。この差で
+      #   「手元では通るのに公開が止まる」が3コミット続いた。
       - run: npm test
+        env:
+          TZ: Asia/Tokyo
+      - run: npm test
+        env:
+          TZ: UTC
       - run: npm run lint
       - run: npx vite build
       - uses: actions/upload-pages-artifact@v3

@@ -119,6 +119,35 @@ function toCell(value: unknown): string {
  * 後段の日時パーサは 'YYYY/MM/DD HH:MM:SS' も ISO も読めるが、
  * 画面のプレビューでCSVと同じ見え方にするために揃えておく。
  */
+/**
+ * 壁時計に直すときの基準となる時間帯。
+ * ★ブラウザの地方時（`getHours()` など）に頼らない。
+ *   CSVエクスポートは日本時間の壁時計を時差なしで書き出すので、
+ *   APIも同じ時間帯に揃えないと、同じ工場の同じロットなのに
+ *   「CSVで読んだとき」と「APIで取ったとき」で時刻が食い違う。
+ *   PCの時計を日本以外に合わせている人がAPIで取ると、稼働時間の判定
+ *   （8:30〜17:30）が丸ごと外れて、滞留時間が別物になる。
+ */
+export const FACTORY_TIME_ZONE = 'Asia/Tokyo'
+
+const WALL_CLOCK = new Intl.DateTimeFormat('en-CA', {
+  timeZone: FACTORY_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+
+/** 実時刻を FACTORY_TIME_ZONE の壁時計にする。CSVと同じ書式で返す */
+function toFactoryWallClock(t: Date): string {
+  const got: Record<string, string> = {}
+  for (const part of WALL_CLOCK.formatToParts(t)) got[part.type] = part.value
+  return `${got.year}/${got.month}/${got.day} ${got.hour}:${got.minute}:${got.second}`
+}
+
 export function normalizeApiDateTime(value: string): string {
   // 実物は '2019-08-24T14:15:00.000+09:00'（ミリ秒と時差つき）
   const m =
@@ -128,16 +157,13 @@ export function normalizeApiDateTime(value: string): string {
   if (!m) return value
 
   const [, y, mo, d, h, mi, s, offset] = m
-  const p = (n: number) => String(n).padStart(2, '0')
 
   // ★時差を無視して壁時計をそのまま使うと、+09:00 以外が来たときに最大9時間ずれる。
-  //   時差が書いてあるときは、いったん実時刻にしてから現地時刻に直す。
+  //   時差が書いてあるときは、いったん実時刻にしてから工場の時間帯に直す。
   if (offset) {
     const iso = `${y}-${mo}-${d}T${h}:${mi}:${s ?? '00'}${offset === 'Z' ? 'Z' : offset.replace(/^([+-]\d{2})(\d{2})$/, '$1:$2')}`
     const t = new Date(iso)
-    if (!Number.isNaN(t.getTime())) {
-      return `${t.getFullYear()}/${p(t.getMonth() + 1)}/${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`
-    }
+    if (!Number.isNaN(t.getTime())) return toFactoryWallClock(t)
   }
   return `${y}/${mo}/${d} ${h}:${mi}:${s ?? '00'}`
 }

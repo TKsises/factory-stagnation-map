@@ -4,6 +4,7 @@ import { guessMapping } from './mapping'
 import {
   extractRecords,
   extractTotal,
+  FACTORY_TIME_ZONE,
   fetchProcessResults,
   normalizeApiDateTime,
   recordsToRawTable,
@@ -131,6 +132,26 @@ describe('時差つきの日時', () => {
 
   it('時差が無ければ壁時計のまま扱う', () => {
     expect(normalizeApiDateTime('2026-05-11 09:00')).toBe('2026/05/11 09:00:00')
+  })
+
+  // ★このテスト群は、実行するPCの時計がどこに合っていても同じ結果になること。
+  //   以前は getHours() などブラウザの地方時に変換しており、
+  //   手元（日本時間）では通るのに CI（UTC）では9時間ずれて落ちていた。
+  //   CSVは日本時間の壁時計を時差なしで書き出すので、APIもそこに揃える。
+  it('★変換先は実行環境の時間帯ではなく、工場の時間帯に固定されている', () => {
+    expect(FACTORY_TIME_ZONE).toBe('Asia/Tokyo')
+
+    // 冬時間・夏時間の両方で、UTC からの差が必ず +9 時間になる
+    expect(normalizeApiDateTime('2026-01-15T00:00:00.000Z')).toBe('2026/01/15 09:00:00')
+    expect(normalizeApiDateTime('2026-07-15T00:00:00.000Z')).toBe('2026/07/15 09:00:00')
+
+    // 日付をまたぐ側も見る（UTC 15:00 は翌日の 00:00）
+    expect(normalizeApiDateTime('2026-07-15T15:00:00.000Z')).toBe('2026/07/16 00:00:00')
+
+    // 実行環境の時間帯とは無関係であることを、地方時と突き合わせて確かめる
+    const localHour = new Date('2026-07-15T00:00:00.000Z').getHours()
+    const converted = Number(normalizeApiDateTime('2026-07-15T00:00:00.000Z').slice(11, 13))
+    if (localHour !== 9) expect(converted).not.toBe(localHour)
   })
 })
 
