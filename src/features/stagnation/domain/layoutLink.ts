@@ -132,8 +132,18 @@ export function buildBands(
 }
 
 /**
+ * 帯の太さの下限と上限。
+ * ★下限が 2px だと、いちばん太い帯が 4.0日・他が 0.8〜1.3日 のような
+ *   偏った工場で、細い側が「線」に見えて帯として読めなくなる。
+ *   原価を入れる前でも図が読めるように、下限を上げる。
+ */
+export const BAND_MIN_WIDTH = 6
+export const BAND_MAX_WIDTH = 22
+
+/**
  * 帯の太さ。金額があれば金額、無ければ滞留日数を基準にする。
- * 0 のときに線が消えないよう下限を持たせる。
+ * ★比率は歪めない（0.8日と0.9日を無理に描き分けようとすると図が嘘になる）。
+ *   細かい差は帯の上の数字で読む。太さは「どこが重いか」だけを伝える。
  */
 export function bandWidth(band: StagnationBand, bands: StagnationBand[]): number {
   const useAmount = bands.every(b => b.amountJPY !== null)
@@ -143,7 +153,7 @@ export function bandWidth(band: StagnationBand, bands: StagnationBand[]): number
     0
   )
   const ratio = max <= 0 ? 0 : value / max
-  return 2 + ratio * 16
+  return BAND_MIN_WIDTH + ratio * (BAND_MAX_WIDTH - BAND_MIN_WIDTH)
 }
 
 /** 対応表がまだ1件も無いか */

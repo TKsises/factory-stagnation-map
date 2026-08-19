@@ -338,7 +338,9 @@ function Band({
     y: 0.25 * from.y + 0.5 * ctrl.y + 0.25 * to.y,
   }
   const color = SEV_COLOR[band.severity]
-  const w = bandWidth(band, bands)
+  // ★ラベルと同じ倍率を掛ける。ワールド座標のまま描くと、
+  //   ズーム53%では6pxの帯が3.2pxになって「線」に見えてしまう
+  const w = bandWidth(band, bands) * u
 
   return (
     <g onClick={onSelect} style={{ cursor: 'pointer' }}>
