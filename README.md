@@ -116,9 +116,20 @@ npm run dev
 アプリと中継が同じ生成元になるので、**中継URLの入力も CORS の設定も要りません。**
 
 1. https://dash.cloudflare.com → Workers & Pages → このリポジトリを import
-2. Settings → Variables and Secrets に2つ入れる（★**Secret** にすること）
-   - `SMARTCRAFT_API_KEY` … Smart Craft のAPIキー
-   - `RELAY_PASSPHRASE` … 自分で決めた長い合言葉（20文字以上を推奨。日本語も可）
+2. **Settings のいちばん上の「Variables and secrets」**で2つ入れる
+
+   ★**Settings には同じ名前の欄が2つあります。**
+   `Configure API tokens and other runtime variables` と書いてある方（Settings の先頭）が正解です。
+   **「Build」の中の「Variables and secrets」はビルド中にしか使われず、Worker からは見えません。**
+   なお「Runtime」のセクションに変数の欄はありません（Placement / Compatibility date /
+   Compatibility flags / Cache だけ）。名前から探すと迷います。
+
+   Add variable → **Type は「Secret」**（Text だと次のデプロイで消えます）
+
+   | Type | Name | 中身 |
+   | --- | --- | --- |
+   | Secret | `SMARTCRAFT_API_KEY` | Smart Craft のAPIキー |
+   | Secret | `RELAY_PASSPHRASE` | 自分で決めた長い合言葉（20文字以上を推奨。日本語も可） |
 3. 付いたURL（`https://xxxx.workers.dev`）を開く。
    取り込み欄に「この場所に中継サーバーがあります」と出れば成功。合言葉だけ入れて取り込む
 
