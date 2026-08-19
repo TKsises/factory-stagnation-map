@@ -37,28 +37,38 @@ export const FIELD_TO_COLUMN: Record<string, string> = {
   process_order_generated_code: '工程指示番号',
   production_process_name: '工程名',
   production_process_code: '工程コード',
+  material_name: '品目名',
   material_code: '品目コード',
-  material_group_code: '品目グループコード',
+  material_group_codes: '品目グループコード',
+  work_center_name: '作業区名',
   work_center_code: '作業区コード',
   production_order_quantity: '指示数',
   process_order_standard_time: '標準時間',
   process_order_setup_standard_time: '段取り標準時間',
-  total_standard_time: '合計標準時間',
+  // ★実物は process_order_ 接頭辞つき。CSVの列名（合計標準時間）とは形が違う
+  process_order_total_standard_time: '合計標準時間',
   process_order_start_at: '開始予定日時',
   process_order_end_at: '終了予定日時',
+  // ★実績の時刻。ここを取り違えると意味が壊れる
+  process_result_started_at: '作業開始日時',
+  process_result_ended_at: '作業終了日時',
+  // ★status は process_result_ 接頭辞（process_order_ ではない）
+  process_result_status: 'ステータス',
+  updated_at: '最終更新日時',
+
+  // 以下は今の /process_results には出てこないが、
+  // 版が変わって増えたときに拾えるよう残しておく（無くても害はない）
+  started_at: '作業開始日時',
+  ended_at: '作業終了日時',
+  material_group_code: '品目グループコード',
+  total_standard_time: '合計標準時間',
+  process_order_status: 'ステータス',
   equipment_code: '設備コード(実績)',
   user_code: '担当者社員番号(実績)',
   user_full_name: '担当者(実績)',
   quantity: '出来高数',
-  defect_quantity: '不良数',
-  // ★実績の時刻。ここを取り違えると意味が壊れる
-  process_result_started_at: '作業開始日時',
-  process_result_ended_at: '作業終了日時',
-  started_at: '作業開始日時',
-  ended_at: '作業終了日時',
   process_result_quantity: '出来高数',
-  process_order_status: 'ステータス',
-  updated_at: '最終更新日時',
+  defect_quantity: '不良数',
   note: '備考',
 }
 
@@ -74,8 +84,19 @@ export type ApiQuery = {
 export type FetchProgress = {
   page: number
   fetched: number
+  /** レスポンスの paging.total。分かれば「◯件中◯件」と出せる */
+  total: number | null
   /** 次のリクエストまでの待ち（ミリ秒）。画面に出す */
   waitingMs: number
+}
+
+/** レスポンスの paging.total を取り出す。無ければ null */
+export function extractTotal(body: unknown): number | null {
+  if (typeof body !== 'object' || body === null) return null
+  const paging = (body as Record<string, unknown>).paging
+  if (typeof paging !== 'object' || paging === null) return null
+  const total = (paging as Record<string, unknown>).total
+  return typeof total === 'number' && Number.isFinite(total) ? total : null
 }
 
 /** 値をCSVと同じ「文字列」に直す。後段は文字列前提で作ってある */
@@ -93,9 +114,26 @@ function toCell(value: unknown): string {
  * 画面のプレビューでCSVと同じ見え方にするために揃えておく。
  */
 export function normalizeApiDateTime(value: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(value)
+  // 実物は '2019-08-24T14:15:00.000+09:00'（ミリ秒と時差つき）
+  const m =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?/.exec(
+      value
+    )
   if (!m) return value
-  return `${m[1]}/${m[2]}/${m[3]} ${m[4]}:${m[5]}:${m[6] ?? '00'}`
+
+  const [, y, mo, d, h, mi, s, offset] = m
+  const p = (n: number) => String(n).padStart(2, '0')
+
+  // ★時差を無視して壁時計をそのまま使うと、+09:00 以外が来たときに最大9時間ずれる。
+  //   時差が書いてあるときは、いったん実時刻にしてから現地時刻に直す。
+  if (offset) {
+    const iso = `${y}-${mo}-${d}T${h}:${mi}:${s ?? '00'}${offset === 'Z' ? 'Z' : offset.replace(/^([+-]\d{2})(\d{2})$/, '$1:$2')}`
+    const t = new Date(iso)
+    if (!Number.isNaN(t.getTime())) {
+      return `${t.getFullYear()}/${p(t.getMonth() + 1)}/${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`
+    }
+  }
+  return `${y}/${mo}/${d} ${h}:${mi}:${s ?? '00'}`
 }
 
 const DATE_LIKE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/
@@ -196,16 +234,19 @@ export async function fetchProcessResults(
       throw new Error(`工程実績を取得できませんでした：${hint}`)
     }
 
-    const records = extractRecords(await res.json())
+    const body = await res.json()
+    const records = extractRecords(body)
+    const total = extractTotal(body)
     all.push(...records)
 
-    deps.onProgress?.({ page, fetched: all.length, waitingMs: 0 })
+    deps.onProgress?.({ page, fetched: all.length, total, waitingMs: 0 })
 
-    // 返ってきた件数が per_page 未満なら、そこで終わり
-    if (records.length < perPage) break
+    // 総数が分かるならそれで判断する。分からなければ件数で判断する
+    if (total !== null ? all.length >= total : records.length < perPage) break
+    if (records.length === 0) break // 総数が嘘でも無限に回らないように
 
     if (page < maxPages) {
-      deps.onProgress?.({ page, fetched: all.length, waitingMs: REQUEST_INTERVAL_MS })
+      deps.onProgress?.({ page, fetched: all.length, total, waitingMs: REQUEST_INTERVAL_MS })
       await sleep(REQUEST_INTERVAL_MS)
     }
   }

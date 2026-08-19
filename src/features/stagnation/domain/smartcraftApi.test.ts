@@ -3,11 +3,136 @@ import { buildLots } from './lots'
 import { guessMapping } from './mapping'
 import {
   extractRecords,
+  extractTotal,
   fetchProcessResults,
   normalizeApiDateTime,
   recordsToRawTable,
   REQUEST_INTERVAL_MS,
 } from './smartcraftApi'
+
+/**
+ * ★api-doc.smartcraft.jp に載っている GET /process_results のレスポンス例そのまま。
+ *   自分で考えた形ではなく、公式の例で確かめる。
+ *   （最初は total_standard_time / process_order_status / material_group_code と
+ *     推測していたが、実物は接頭辞や単複が違っていた）
+ */
+const OFFICIAL_RESPONSE = {
+  process_results: [
+    {
+      id: 12,
+      production_order_code: 'PO000001',
+      production_order_tags: ['急ぎ'],
+      sequence_number: 3,
+      process_order_generated_code: 'PO000001_3',
+      process_order_tags: [],
+      production_process_name: '表面処理',
+      production_process_code: 'P050',
+      production_process_tags: [],
+      material_name: 'ブラケット',
+      material_code: 'MA000003',
+      material_tags: [],
+      material_group_names: ['機械部品'],
+      material_group_codes: ['MG001'],
+      material_group_tags: [],
+      work_center_name: '表面処理エリア',
+      work_center_code: 'WC000031',
+      work_center_tags: [],
+      production_order_quantity: 300,
+      process_order_standard_time: 150,
+      process_order_setup_standard_time: 30,
+      process_order_total_standard_time: 180,
+      process_order_start_at: '2026-05-11T08:30:00.000+09:00',
+      process_order_end_at: '2026-05-11T11:30:00.000+09:00',
+      process_result_started_at: '2026-05-11T09:00:00.000+09:00',
+      process_result_ended_at: '2026-05-11T11:45:00.000+09:00',
+      process_result_status: 'done',
+      created_at: '2026-05-10T10:00:00.000+09:00',
+      updated_at: '2026-05-11T11:45:00.000+09:00',
+    },
+  ],
+  paging: { page: 1, per_page: 100, total: 1 },
+}
+
+describe('★公式のレスポンス例で対応表を確かめる', () => {
+  const records = extractRecords(OFFICIAL_RESPONSE)
+  const table = recordsToRawTable(records, 'api')
+  const col = (name: string) => table.headers.indexOf(name)
+
+  it('process_results キーから配列を取り出せる', () => {
+    expect(records).toHaveLength(1)
+  })
+
+  it('総数を取り出せる', () => {
+    expect(extractTotal(OFFICIAL_RESPONSE)).toBe(1)
+  })
+
+  it('★実績の時刻がCSVと同じ列名になる', () => {
+    expect(col('作業開始日時')).toBeGreaterThanOrEqual(0)
+    expect(col('作業終了日時')).toBeGreaterThanOrEqual(0)
+    expect(table.rows[0][col('作業開始日時')]).toBe('2026/05/11 09:00:00')
+    expect(table.rows[0][col('作業終了日時')]).toBe('2026/05/11 11:45:00')
+  })
+
+  it('予定の時刻は予定の列名のまま（実績と混ざらない）', () => {
+    expect(table.rows[0][col('開始予定日時')]).toBe('2026/05/11 08:30:00')
+  })
+
+  it('接頭辞つきのフィールドも取り違えない', () => {
+    expect(table.rows[0][col('合計標準時間')]).toBe('180') // process_order_total_standard_time
+    expect(table.rows[0][col('ステータス')]).toBe('done') // process_result_status
+  })
+
+  it('複数形のフィールドも拾う', () => {
+    expect(table.rows[0][col('品目グループコード')]).toBe('MG001') // material_group_codes は配列
+  })
+
+  it('滞留計算に必要な列がすべて揃う', () => {
+    for (const name of [
+      '製造指示番号',
+      '工程順',
+      '工程コード',
+      '工程名',
+      '品目コード',
+      '指示数',
+      '作業区コード',
+      '標準時間',
+      '作業開始日時',
+      '作業終了日時',
+    ]) {
+      expect(col(name), `${name} が無い`).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('列マッピングの自動推測がそのまま効く', () => {
+    const m = guessMapping(table.headers)
+    expect(m.lotKey).toBe('製造指示番号')
+    expect(m.processKey).toBe('工程コード')
+    expect(m.actualStart).toBe('作業開始日時')
+    expect(m.actualEnd).toBe('作業終了日時')
+    expect(m.processOrder).toBe('工程順')
+    expect(m.quantity).toBe('指示数')
+    expect(m.totalStandardTime).toBe('合計標準時間')
+  })
+
+  it('タグの配列も文字列にして落とさない', () => {
+    expect(table.rows[0][col('production_order_tags')]).toBe('急ぎ')
+  })
+})
+
+describe('時差つきの日時', () => {
+  it('+09:00 を現地時刻に直す', () => {
+    expect(normalizeApiDateTime('2026-05-11T09:00:00.000+09:00')).toBe('2026/05/11 09:00:00')
+  })
+
+  it('★UTC で返ってきても9時間ずれない', () => {
+    // 2026-05-11T00:00:00Z は JST の 09:00
+    expect(normalizeApiDateTime('2026-05-11T00:00:00.000Z')).toBe('2026/05/11 09:00:00')
+  })
+
+  it('時差が無ければ壁時計のまま扱う', () => {
+    expect(normalizeApiDateTime('2026-05-11 09:00')).toBe('2026/05/11 09:00:00')
+  })
+})
 
 const RECORD = {
   production_order_code: 'PO-0001',
