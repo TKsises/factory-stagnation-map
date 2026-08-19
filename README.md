@@ -133,7 +133,16 @@ npm run dev
 3. 付いたURL（`https://xxxx.workers.dev`）を開く。
    取り込み欄に「この場所に中継サーバーがあります」と出れば成功。合言葉だけ入れて取り込む
 
-検証環境の鍵を使うときは `SMARTCRAFT_API_BASE` も足します。
+**検証環境の鍵を使うときは `SMARTCRAFT_API_BASE` も足します（Secret で）。**
+
+| Name | 値 |
+| --- | --- |
+| `SMARTCRAFT_API_BASE` | `https://api.staging.smartcraft.jp/api/v1` |
+
+中継は既定で本番（`https://api.smartcraft.jp/api/v1`）に投げます。
+**検証環境で発行した鍵を本番のURLに送ると 401 になります。**
+「Smart Craft がAPIキーを受け付けませんでした」と出たら、まずここを疑ってください
+（この罠は2回踏んでいます）。
 
 | 経路 | 何を返すか |
 | --- | --- |

@@ -354,13 +354,23 @@ describe('失敗したときの言い方', () => {
     ).rejects.toThrow(/合言葉/)
   })
 
-  it('中継経由の401は .env.local ではなく中継サーバーを案内する', async () => {
+  // ★中継経由で401が来た時点で、鍵は中継サーバーに入っている
+  //   （入っていなければ中継が500を返す）。だから「設定されていないか」と
+  //   曖昧に言わない。実際に踏んだ原因は、検証環境の鍵を本番URLに送っていたこと。
+  it('中継経由の401は、環境違いを名指しで疑わせる', async () => {
+    const run = fetchProcessResults(
+      {},
+      { fetchFn: failWith(401), sleep: async () => {}, relayBase: 'https://r.example.com' }
+    )
+    await expect(run).rejects.toThrow(/Smart Craft がAPIキーを受け付けませんでした/)
+    await expect(run).rejects.toThrow(/SMARTCRAFT_API_BASE/)
+    await expect(run).rejects.toThrow(/staging/)
+  })
+
+  it('手元の401は .env.local を案内する（中継とは別の直し方）', async () => {
     await expect(
-      fetchProcessResults(
-        {},
-        { fetchFn: failWith(401), sleep: async () => {}, relayBase: 'https://r.example.com' }
-      )
-    ).rejects.toThrow(/中継サーバー/)
+      fetchProcessResults({}, { fetchFn: failWith(401), sleep: async () => {} })
+    ).rejects.toThrow(/\.env\.local/)
   })
 })
 

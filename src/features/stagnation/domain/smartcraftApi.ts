@@ -321,7 +321,11 @@ export async function fetchProcessResults(
       const hint =
         res.status === 401
           ? viaRelay
-            ? 'APIキーが中継サーバーに設定されていないか、権限がありません'
+            ? // ★ここに来た時点で、鍵は中継サーバーに入っている（無ければ中継が500を返す）。
+              //   401 は Smart Craft 側が撥ねたということ。原因のほとんどは環境違い。
+              'Smart Craft がAPIキーを受け付けませんでした。' +
+              '検証環境で発行した鍵を本番のURLに送っていませんか？' +
+              '（中継サーバーに SMARTCRAFT_API_BASE = https://api.staging.smartcraft.jp/api/v1 を追加してください）'
             : 'APIキーが設定されていないか、権限がありません（.env.local を確認してください）'
           : res.status === 403
             ? '中継サーバーが受け付けませんでした。合言葉を確認してください'
